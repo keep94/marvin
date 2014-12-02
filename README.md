@@ -11,7 +11,7 @@ All of this API is subject to change.
 
 ## Installing
 
-        go get github.com/keep94/marvin
+        go get github.com/keep94/marvin/...
 
 ## Online Documentation
 
