@@ -130,7 +130,7 @@ func Constant(a ops.HueAction) Factory {
 }
 
 // HueTask represents a task that needs user input to generate a real
-// ops.HueTask. These instances are immutable.
+// ops.HueTask. These instances must be treated as immutable.
 type HueTask struct {
 
   // Unique Id.
@@ -194,7 +194,7 @@ func (h *HueTask) getDescription(names []string) string {
   return fmt.Sprintf("%s %s", h.Description, strings.Join(parts, " "))
 }
 
-// HueTaskList represents a list of hue tasks.
+// HueTaskList represents an immutable list of hue tasks.
 type HueTaskList []*HueTask
 
 // FromOpsHueTaskList is a convenience routine that converts an

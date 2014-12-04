@@ -42,6 +42,7 @@ type HueAction interface {
 }
 
 // HueTask represents a HueAction with an ID and description.
+// These instances must be treated as immutable.
 type HueTask struct {
   Id int
   HueAction
@@ -58,18 +59,8 @@ func (h *HueTask) GetDescription() string {
   return h.Description
 }
 
-
-// HueTaskList represents a list of hue tasks.
+// HueTaskList represents an immutable list of hue tasks.
 type HueTaskList []*HueTask
-
-// ToMap returns this HueTaskList as a map keyed by Id
-func (l HueTaskList) ToMap() map[int]*HueTask {
-  result := make(map[int]*HueTask, len(l))
-  for _, ht := range l {
-    result[ht.Id] = ht
-  }
-  return result
-}
 
 // ColorBrightness represents a color and brightness.
 type ColorBrightness struct {
