@@ -11,6 +11,7 @@ import (
 )
 
 // Observation represents a weather observation. 
+// These instances must be treated as immutable.
 type Observation struct {
   // Temperature in celsius
   Temperature float64 `xml:"temp_c"`

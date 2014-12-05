@@ -12,8 +12,8 @@ type CEntry struct {
   Color gohue.Color
 }
 
-// Color represents a color scale. Entries must be sorted by Value in
-// ascending order.
+// Color represents an immutable color scale.
+// Entries must be sorted by Value in ascending order.
 type Color []CEntry
 
 
