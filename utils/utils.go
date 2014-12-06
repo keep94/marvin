@@ -14,7 +14,8 @@ import (
   "time"
 )
 
-// Recurring represents recurring time with an ID and description
+// Recurring represents recurring time with an ID and description.
+// These instances must be treated as immutable.
 type Recurring struct {
   Id int
   recurring.R
