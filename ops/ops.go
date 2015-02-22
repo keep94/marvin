@@ -72,6 +72,7 @@ type ColorBrightness struct {
 // of the map is the light id; the value is the color and brightness for that
 // light. A color and brightness for light id 0 means all lights are to have
 // that color and brightness.
+// These instances must be treated as immutable.
 type LightColors map[int]ColorBrightness
 
 // Interface LightReader reads the state of a light
@@ -102,6 +103,7 @@ func Snapshot(reader LightReader, lightSet lights.Set) (LightColors, error) {
 
 // StaticHueAction represents a HueAction that turns each light on to some
 // some color and brightness.
+// These instances must be treated as immutable.
 type StaticHueAction LightColors
 
 func (a StaticHueAction) Do(
