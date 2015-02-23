@@ -84,16 +84,34 @@ func HueTaskById(store NamedColorsByIdRunner, hueTaskId int) *ops.HueTask {
   return namedColors.AsHueTask()
 }
 
+// DescriptionMap updates the description of an ops.NamedColors
+// read from the database if the id of the ops.NamedColors plus
+// utils.PersistentTaskIdOffset is a key in this map. In this case, the
+// corresponding value is the new description.
+// These instances must be treated as immutable once created.
+type DescriptionMap map[int]string
+
+// Filter updates the description of an ops.NamedColors in place.
+// ptr is of type *ops.NamedColors.
+func (f DescriptionMap) Filter(ptr interface{}) error {
+  p := ptr.(*ops.NamedColors)
+  desc, ok := f[int(p.Id) + ops.PersistentTaskIdOffset]
+  if ok {
+    p.Description = desc
+  }
+  return nil
+}
+
 // FixDescriptionByIdRunner returns a new NamedColorsByIdRunner that works
 // just like delegate except that if id + utils.PersistentTaskIdOffset is
 // in descriptionMap, then the Description field in fetched NamedColors
 // instance is replaced by the corresponding value in description map.
 func FixDescriptionByIdRunner(
     delegate NamedColorsByIdRunner,
-    descriptionMap map[int]string) NamedColorsByIdRunner {
+    descriptionMap DescriptionMap) NamedColorsByIdRunner {
   return &fixDescriptionByIdRunner{
       delegate: delegate,
-      filter: descriptionMapFilter(descriptionMap)}
+      filter: descriptionMap}
 }
 
 // FixDescriptionsRunner returns a new NamedColorsRunner that works
@@ -102,10 +120,10 @@ func FixDescriptionByIdRunner(
 // instance is replaced by the corresponding value in description map.
 func FixDescriptionsRunner(
     delegate NamedColorsRunner,
-    descriptionMap map[int]string) NamedColorsRunner {
+    descriptionMap DescriptionMap) NamedColorsRunner {
   return &fixDescriptionRunner{
       delegate: delegate,
-      filter: descriptionMapFilter(descriptionMap)}
+      filter: descriptionMap}
 }
 
 // FutureHueTask creates a HueTask from persistent storage by Id.
@@ -142,17 +160,6 @@ func (a errAction) Do(
 func (a errAction) UsedLights(
     lightSet lights.Set) lights.Set {
   return lightSet
-}
-
-type descriptionMapFilter map[int]string
-
-func (f descriptionMapFilter) Filter(ptr interface{}) error {
-  p := ptr.(*ops.NamedColors)
-  desc, ok := f[int(p.Id) + ops.PersistentTaskIdOffset]
-  if ok {
-    p.Description = desc
-  }
-  return nil
 }
 
 type fixDescriptionRunner struct {

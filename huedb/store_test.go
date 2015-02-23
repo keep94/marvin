@@ -33,7 +33,7 @@ var (
        Description: "Bar",
       },
   }
-  kDescriptionMap = map[int]string {10004: "Baz"}
+  kDescriptionMap = huedb.DescriptionMap{10004: "Baz"}
   kExpectedHueTasks = ops.HueTaskList{
       {
        Id: 10002,
