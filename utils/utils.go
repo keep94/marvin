@@ -22,7 +22,8 @@ type Recurring struct {
   Description string
 }
 
-// BackgroundRunner runs a single task in the background
+// BackgroundRunner runs a single task in the background.
+// BackgroundRunner is safe to use with multiple goroutines.
 type BackgroundRunner struct {
   task tasks.Task
   runner *tasks.SingleExecutor
@@ -64,7 +65,12 @@ type FutureHueTask interface {
   GetDescription() string
 }
 
-// ScheduledTask represents a scheduled task.
+// ScheduledTask represents a scheduled task that runs periodically to
+// operate hue lights.
+// ScheduledTask instances should not be copied via assignment operator.
+// Multiple goroutines can enable or disable this scheduled task via
+// its BackgroundRunner. Other than that, ScheduledTask instances are
+// to be treated as immutable.
 type ScheduledTask struct {
   // ID of the scheduled task
   Id int
@@ -130,7 +136,7 @@ func TaskToScheduledTask(
   }
 }
 
-// ScheduledTaskList represents a list of scheduled tasks.
+// ScheduledTaskList represents an immutable list of scheduled tasks.
 type ScheduledTaskList []*ScheduledTask
 
 // ToMap returns this ScheduledTaskList as a map keyed by Id
@@ -142,7 +148,9 @@ func (l ScheduledTaskList) ToMap() map[int]*ScheduledTask {
   return result
 }
  
-// MultiExecutor executes hue tasks.
+// MultiExecutor executes hue tasks while ensuring that no more than
+// one task is controlling any given light. MultiExecutor is safe to use
+// with multiple goroutines.
 type MultiExecutor struct {
   me *tasks.MultiExecutor
   c ops.Context
@@ -218,7 +226,9 @@ func (m *MultiExecutor) MaybeStart(
   return nil
 }
 
-// Start starts a hue tasks for a suggested set of lights.
+// Start starts a task for a suggested set of lights. Start
+// interrupts any running task using the lights that h needs before
+// starting h. Start returns the execution of h.
 func (m *MultiExecutor) Start(
     h *ops.HueTask, lightSet lights.Set) *tasks.Execution {
   usedLights := h.UsedLights(lightSet)
@@ -230,11 +240,17 @@ func (m *MultiExecutor) Start(
 }
 
 // Pause pauses this executor waiting for all tasks to actually stop.
+// Pause() and Resume() must be called from the same goroutine.
+// Calling Pause() and Resume() concurrently from different goroutines
+// causes undefined behavior and may cause Pause() to block indefinitely.
 func (m *MultiExecutor) Pause() {
   m.me.Pause()
 }
 
 // Resume resumes this executor.
+// Pause() and Resume() must be called from the same goroutine.
+// Calling Pause() and Resume() concurrently from different goroutines
+// causes undefined behavior and may cause Pause() to block indefinitely.
 func (m *MultiExecutor) Resume() {
   m.me.Resume()
 }
@@ -246,6 +262,8 @@ func (m *MultiExecutor) Tasks() []*HueTaskWrapper {
   return result
 }
 
+// Stop stops a particular task. taskId is the ID of the task
+// as returned by HueTaskWrapper.TaskId().
 func (m *MultiExecutor) Stop(taskId string) {
   e := m.me.Tasks().(*TaskCollection).FindByTaskId(taskId)
   if e != nil {
@@ -261,6 +279,7 @@ func (m *MultiExecutor) Close() error {
 }
 
 // MultiTimer schedules hue tasks to run at certain times.
+// MultiTimer is safe to use wit multiple goroutines.
 type MultiTimer struct {
   executor *MultiExecutor
   scheduler *tasks.MultiExecutor
@@ -299,7 +318,9 @@ func (m *MultiTimer) Scheduled() []*TimerTaskWrapper {
   return result
 }
 
-// Cancel cancels scheduled task with given task ID
+// Cancel cancels a scheduled task. taskId comes from
+// TimerTaskWrapper.TaskId() and identifies the scheduling of a task.
+// This ID is different from the ID of a running task
 func (m *MultiTimer) Cancel(taskId string) {
   e := m.scheduler.Tasks().(*TaskCollection).FindByTaskId(taskId)
   if e != nil {
@@ -320,6 +341,7 @@ type LightReaderWriter interface {
 // messing up what was running in Base. Finally call Pop to pause Extra,
 // restore the lights and resume Base as if no programs were ever run
 // on Extra.
+// Stack can be safely used with multiple goroutines.
 type Stack struct {
   Base *MultiExecutor
   Extra *MultiExecutor
