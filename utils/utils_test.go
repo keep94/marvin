@@ -72,7 +72,28 @@ func TestTimerTaskWrapper(t *testing.T) {
       H: &ops.HueTask{Id: 21},
       Ls: lights.New(5, 7),
       StartTime: now.Add(time.Hour + 5 * time.Minute + 53 * time.Second)}
+  conflictingTask := &utils.TimerTaskWrapper{
+      H: &ops.HueTask{Id: 23},
+      Ls: lights.New(4, 7),
+      StartTime: now.Add(time.Hour + 5 * time.Minute + 53 * time.Second)}
+  notConflictingTask := &utils.TimerTaskWrapper{
+      H: &ops.HueTask{Id: 23},
+      Ls: lights.New(4),
+      StartTime: now.Add(time.Hour + 5 * time.Minute + 53 * time.Second)}
+  notConflictingTask2 := &utils.TimerTaskWrapper{
+      H: &ops.HueTask{Id: 23},
+      Ls: lights.New(4, 7),
+      StartTime: now.Add(time.Hour + 5 * time.Minute + 54 * time.Second)}
   assertStrEqual(t, "21:1300003953:5,7", task.TaskId())
+  if !task.ConflictsWith(conflictingTask) {
+    t.Error("Expected tasks to conflict.")
+  }
+  if task.ConflictsWith(notConflictingTask) {
+    t.Error("Expected tasks not to conflict.")
+  }
+  if task.ConflictsWith(notConflictingTask2) {
+    t.Error("Expected tasks not to conflict.")
+  }
 
   // One second added to display clock
   assertStrEqual(t, "1:05:54", task.TimeLeftStr(now))

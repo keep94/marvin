@@ -585,7 +585,10 @@ func (t *TimerTaskWrapper) Do(e *tasks.Execution) {
 }
 
 func (t *TimerTaskWrapper) ConflictsWith(other Task) bool {
-  return false
+  otherTask := other.(*TimerTaskWrapper)
+  // We compare unix times to ensure that tasks with the same task ID
+  // conflict.
+  return t.StartTime.Unix() == otherTask.StartTime.Unix() && t.Ls.OverlapsWith(otherTask.Ls)
 }
 
 // TaskId is combination of hue task Id, light set, and start time
