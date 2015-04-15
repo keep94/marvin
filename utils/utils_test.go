@@ -5,6 +5,7 @@ import (
   "github.com/keep94/marvin/ops"
   "github.com/keep94/marvin/utils"
   "github.com/keep94/tasks"
+  "reflect"
   "testing"
   "time"
 )
@@ -206,6 +207,92 @@ func TestFutureTime(t *testing.T) {
   }
 }
 
+func TestMultiTimerPersistence(t *testing.T) {
+  now := time.Unix(1400000000, 0)
+  storedAtTimeTasks := []*ops.AtTimeTask{
+      {H: &ops.HueTask{Id: 21, HueAction: intAction(121), Description: "Foo" },
+       Ls: nil,
+       StartTime: now.Add(10 * time.Minute),
+      },
+      {H: &ops.HueTask{Id: 22, HueAction: intAction(122), Description: "Baz" },
+       Ls: nil,
+       StartTime: now.Add(-1 * time.Second),
+      },
+      {H: &ops.HueTask{Id: 25, HueAction: intAction(125), Description: "Bar"  },
+       Ls: lights.New(2, 4),
+       StartTime: now.Add( 15 * time.Minute),
+      },
+  }
+  storeActivity := make(chan interface{}, 10)
+  beginnerActivity := make(chan interface{}, 10)
+  defer close(storeActivity)
+  defer close(beginnerActivity)
+  clock := tasks.NewFakeClock(now)
+  store := &atTimeTaskStore{
+          Tasks: storedAtTimeTasks, Activity: storeActivity}
+  beginner := hueTaskBeginner{beginnerActivity}
+  mt := utils.NewMultiTimerWithStoreAndClock(beginner, store, clock)
+  store.VerifyNoInteraction(t)
+  expectedAtTimeTasks := []*ops.AtTimeTask{
+      {H: &ops.HueTask{Id: 21, HueAction: intAction(121), Description: "Foo" },
+       Ls: nil,
+       StartTime: now.Add(10 * time.Minute),
+      },
+      {H: &ops.HueTask{Id: 25, HueAction: intAction(125), Description: "Bar"  },
+       Ls: lights.New(2, 4),
+       StartTime: now.Add( 15 * time.Minute),
+      },
+  }
+  verifyScheduled(t, expectedAtTimeTasks, mt.Scheduled())
+
+  // Schedule another task that conflicts with an existing task
+  mt.Schedule(
+      &ops.HueTask{Id: 27, HueAction: intAction(127), Description: "Baz" },
+      lights.New(1, 4),
+      now.Add(10 * time.Minute))
+  store.VerifyRemoved(t, "21:1400000600:All", false)
+  store.VerifyAdded(t, &ops.AtTimeTask{
+      Id: "27:1400000600:1,4",
+      H: &ops.HueTask{Id: 27, HueAction: intAction(127), Description: "Baz" },
+      Ls: lights.New(1, 4),
+      StartTime: now.Add(10 * time.Minute)}, false)
+  scheduleOfTaskId27 := mt.FindByScheduleId("27:1400000600:1,4")
+  beginner.VerifyNoInteraction(t)
+  expectedAtTimeTasks = []*ops.AtTimeTask{
+      {H: &ops.HueTask{Id: 25, HueAction: intAction(125), Description: "Bar"  },
+       Ls: lights.New(2, 4),
+       StartTime: now.Add( 15 * time.Minute),
+      },
+      {H: &ops.HueTask{Id: 27, HueAction: intAction(127), Description: "Baz"  },
+       Ls: lights.New(1, 4),
+       StartTime: now.Add( 10 * time.Minute),
+      },
+  }
+  verifyScheduled(t, expectedAtTimeTasks, mt.Scheduled())
+  clock.Advance(10 * time.Minute)
+  beginner.Verify(
+      t,
+      &ops.HueTask{Id: 27, HueAction: intAction(127), Description: "Baz"},
+      lights.New(1, 4))
+  store.VerifyRemoved(t, "27:1400000600:1,4", true)
+
+  // Block until scheduling is complete before verifying task list
+  <-scheduleOfTaskId27.Done()
+  expectedAtTimeTasks = []*ops.AtTimeTask{
+      {H: &ops.HueTask{Id: 25, HueAction: intAction(125), Description: "Bar"  },
+       Ls: lights.New(2, 4),
+       StartTime: now.Add( 15 * time.Minute),
+      },
+  }
+  verifyScheduled(t, expectedAtTimeTasks, mt.Scheduled())
+
+  // This should be a noop
+  mt.Cancel("NoSuchTaskId")
+
+  store.VerifyNoInteraction(t)
+  beginner.VerifyNoInteraction(t)
+}
+
 func assertStrEqual(t *testing.T, expected, actual string) {
   if expected != actual {
     t.Errorf("Expected %s, got %s", expected, actual)
@@ -290,6 +377,17 @@ func newHueTaskWithAction(id int, a ops.HueAction) *ops.HueTask {
   return &ops.HueTask{Id: id, HueAction: a}
 }
 
+type intAction int
+
+func (i intAction) Do(
+    c ops.Context, lightSet lights.Set, e *tasks.Execution) {
+}
+
+func (l intAction) UsedLights(
+    lightSet lights.Set) lights.Set {
+  return lightSet
+}
+
 type longAction struct {
 }
 
@@ -332,5 +430,125 @@ type longHueActionFalse struct {
 func (l longHueActionFalse) UsedLights(
     lightSet lights.Set) lights.Set {
   return lights.None
+}
+
+type hueTaskBeginner struct {
+  Activity chan interface{}
+}
+
+func (b hueTaskBeginner) Begin(h *ops.HueTask, ls lights.Set) {
+  b.Activity <- h
+  b.Activity <- ls
+}
+
+func (b hueTaskBeginner) Verify(
+    t *testing.T, expectedH *ops.HueTask, expectedLs lights.Set) {
+  h := nextActivity(b.Activity, true).(*ops.HueTask)
+  ls := nextActivity(b.Activity, true).(lights.Set)
+  if !reflect.DeepEqual(expectedH, h) {
+    t.Errorf("Expected task %v, got %v", expectedH, h)
+  }
+  if !reflect.DeepEqual(expectedLs, ls) {
+    t.Errorf("Expected light set %v, got %v", expectedLs, ls)
+  }
+}
+
+func (b hueTaskBeginner) VerifyNoInteraction(t *testing.T) {
+  h := nextActivity(b.Activity, false)
+  ls := nextActivity(b.Activity, false)
+  if h != nil || ls != nil {
+    t.Error("Expected no interaction.")
+  }
+}
+
+type atTimeTaskStore struct {
+  Tasks []*ops.AtTimeTask
+  Activity chan interface{}
+}
+
+func (s *atTimeTaskStore) All() []*ops.AtTimeTask {
+  result := make([]*ops.AtTimeTask, len(s.Tasks))
+  copy(result, s.Tasks)
+  return result
+}
+
+func (s *atTimeTaskStore) Add(t *ops.AtTimeTask) {
+  s.Activity <- t
+}
+
+func (s *atTimeTaskStore) Remove(id string) {
+  s.Activity <- id
+}
+
+func (s *atTimeTaskStore) VerifyNoInteraction(t *testing.T) {
+  if activity := nextActivity(s.Activity, false); activity != nil {
+    t.Errorf("Expected no interaction, got %v", activity)
+  }
+}
+
+func (s *atTimeTaskStore) VerifyAdded(
+    t *testing.T, expected *ops.AtTimeTask, wait bool) {
+  result := nextActivity(s.Activity, wait)
+  actual, ok := result.(*ops.AtTimeTask)
+  if !ok {
+    t.Errorf("Expected %v added.", expected)
+    return
+  }
+  if !reflect.DeepEqual(expected, actual) {
+    t.Errorf("Expected %v added, got %v", expected, actual)
+  }
+}
+
+func (s *atTimeTaskStore) VerifyRemoved(
+    t *testing.T, expected string, wait bool) {
+  result := nextActivity(s.Activity, wait)
+  actual, ok := result.(string)
+  if !ok {
+    t.Errorf("Expected %s removed.", expected)
+    return
+  }
+  if actual != expected {
+    t.Errorf("Expected %s removed, got %s", expected, actual)
+  }
+}
+
+func verifyScheduled(
+    t *testing.T,
+    expected []*ops.AtTimeTask,
+    actual []*utils.TimerTaskWrapper) {
+  alen := len(actual)
+  elen := len(expected)
+  if alen != elen {
+    t.Errorf("Expected length %d, got %d", elen, alen)
+    return
+  }
+  for i := range expected {
+    if !reflect.DeepEqual(expected[i].H, actual[i].H) {
+      t.Errorf(
+          "At index %d, expected %v, got %v", i, expected[i].H, actual[i].H)
+    }
+    if !reflect.DeepEqual(expected[i].Ls, actual[i].Ls) {
+      t.Errorf(
+          "At index %d, expected %s, got %s", i, expected[i].Ls, actual[i].Ls)
+    }
+    if !reflect.DeepEqual(expected[i].StartTime, actual[i].StartTime) {
+      t.Errorf(
+          "At index %d, expected %s, got %s",
+          i, expected[i].StartTime, actual[i].StartTime)
+    }
+  }
+}
+
+func nextActivity(activity <-chan interface{}, wait bool) interface{} {
+  if wait {
+    return <-activity
+  } else {
+    select {
+      case result := <-activity:
+        return result
+      default:
+        return nil
+    }
+  }
 }
 

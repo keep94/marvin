@@ -239,6 +239,12 @@ func (m *MultiExecutor) Start(
       &HueTaskWrapper{H: h, Ls: usedLights, c: m.c, log: m.hlog})
 }
 
+// Begin is a synonym for Start. Needed to implement HueTaskBeginner.
+func (m *MultiExecutor) Begin(
+    h *ops.HueTask, lightSet lights.Set) {
+  m.Start(h, lightSet)
+}
+
 // Pause pauses this executor waiting for all tasks to actually stop.
 // Pause() and Resume() must be called from the same goroutine.
 // Calling Pause() and Resume() concurrently from different goroutines
@@ -278,19 +284,76 @@ func (m *MultiExecutor) Close() error {
   return m.me.Close()
 }
 
+// Interface AtTimeTaskStore keeps persistent storage of all scheduled tasks
+// in a MultiTimer.
+type AtTimeTaskStore interface {
+  // Returns all stored tasks
+  All() []*ops.AtTimeTask
+
+  // Removes a particular task by schedule Id
+  Remove(scheduleId string)
+
+  // Adds a new task
+  Add(task *ops.AtTimeTask)
+}
+
+// Interface HueTaskBeginner can begin a hue task. MultiExecutor
+// implements this interface.
+type HueTaskBeginner interface {
+  Begin(t *ops.HueTask, ls lights.Set)
+}
+
 // MultiTimer schedules hue tasks to run at certain times.
 // MultiTimer is safe to use wit multiple goroutines.
 type MultiTimer struct {
-  executor *MultiExecutor
+  executor HueTaskBeginner
   scheduler *tasks.MultiExecutor
+  store AtTimeTaskStore
 }
 
 // NewMultiTimer creates a new MultiTimer. executor is the MultiExecutor
 // to which this instance will send hue tasks.
-func NewMultiTimer(executor *MultiExecutor) *MultiTimer {
-  return &MultiTimer{
+func NewMultiTimer(executor HueTaskBeginner) *MultiTimer {
+  return NewMultiTimerWithStoreAndClock(
+      executor, nilAtTimeTaskStore{}, tasks.SystemClock())
+}
+
+// NewMultiTimerWithStore creates a new MultiTimer.
+// executor is the MultiExecutor to which this instance will send hue tasks.
+// store handles the persistent storage of tasks.
+func NewMultiTimerWithStore(
+    executor HueTaskBeginner, store AtTimeTaskStore) *MultiTimer {
+  return NewMultiTimerWithStoreAndClock(
+      executor, store, tasks.SystemClock())
+}
+
+// NewMultiTimerWithStoreAndClock provides a caller supplied clock for
+// testing
+func NewMultiTimerWithStoreAndClock(
+    executor HueTaskBeginner,
+    store AtTimeTaskStore,
+    clock tasks.Clock) *MultiTimer {
+  result := &MultiTimer{
       executor: executor,
-      scheduler: tasks.NewMultiExecutor(&TaskCollection{})}
+      scheduler: tasks.NewMultiExecutorWithClock(&TaskCollection{}, clock),
+      store: store}
+  tasks := store.All()
+  for i := range tasks {
+    result.schedule(tasks[i].H, tasks[i].Ls, tasks[i].StartTime)
+  }
+  return result
+}
+
+func (m *MultiTimer) schedule(
+    h *ops.HueTask, usedLights lights.Set, startTime time.Time) string {
+  wrapper := &TimerTaskWrapper{
+      H: h,
+      Ls: usedLights,
+      StartTime: startTime,
+      executor: m.executor,
+      store: m.store}
+  m.scheduler.Start(wrapper)
+  return wrapper.TaskId()
 }
 
 // Schedule schedules a hue task to be run.
@@ -303,12 +366,9 @@ func (m *MultiTimer) Schedule(
   if usedLights.IsNone() {
     return
   }
-  m.scheduler.Start(
-      &TimerTaskWrapper{
-          H: h,
-          Ls: usedLights,
-          Executor: m.executor,
-          StartTime: startTime})
+  scheduleId := m.schedule(h, usedLights, startTime)
+  m.store.Add(&ops.AtTimeTask{
+      Id: scheduleId, H: h, Ls: usedLights, StartTime: startTime})
 }
 
 // Scheduled returns the tasks scheduled to be run.
@@ -318,11 +378,18 @@ func (m *MultiTimer) Scheduled() []*TimerTaskWrapper {
   return result
 }
 
-// Cancel cancels a scheduled task. taskId comes from
+// FindByScheduleId returns the execution that controls the scheduling of a
+// task. scheduleId identifies the scheduling of the task and comes from
+// TimerTaskWrapper.TaskId() which is different from the ID of a running task.
+func (m *MultiTimer) FindByScheduleId(scheduleId string) *tasks.Execution {
+  return m.scheduler.Tasks().(*TaskCollection).FindByTaskId(scheduleId)
+}
+
+// Cancel cancels a scheduled task. scheduleId comes from
 // TimerTaskWrapper.TaskId() and identifies the scheduling of a task.
 // This ID is different from the ID of a running task
 func (m *MultiTimer) Cancel(taskId string) {
-  e := m.scheduler.Tasks().(*TaskCollection).FindByTaskId(taskId)
+  e := m.FindByScheduleId(taskId)
   if e != nil {
     e.End()
     <-e.Done()
@@ -567,11 +634,13 @@ type TimerTaskWrapper struct {
   // Empty set means all lights
   Ls lights.Set
 
-  // Runs the task when it is time
-  Executor *MultiExecutor
-
   // The time to start
   StartTime time.Time
+
+  executor HueTaskBeginner
+
+  store AtTimeTaskStore
+
 }
 
 func (t *TimerTaskWrapper) Do(e *tasks.Execution) {
@@ -580,8 +649,9 @@ func (t *TimerTaskWrapper) Do(e *tasks.Execution) {
     return
   }
   if e.Sleep(d) {
-    t.Executor.Start(t.H, t.Ls)
+    t.executor.Begin(t.H, t.Ls)
   }
+  t.store.Remove(t.TaskId())
 }
 
 func (t *TimerTaskWrapper) ConflictsWith(other Task) bool {
@@ -637,3 +707,15 @@ type taskExecution struct {
   e *tasks.Execution
 }
 
+type nilAtTimeTaskStore struct {
+}
+
+func (n nilAtTimeTaskStore) All() []*ops.AtTimeTask {
+  return nil
+}
+
+func (n nilAtTimeTaskStore) Remove(id string) {
+}
+
+func (n nilAtTimeTaskStore) Add(task *ops.AtTimeTask) {
+}

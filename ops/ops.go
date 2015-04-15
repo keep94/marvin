@@ -8,6 +8,7 @@ import (
   "github.com/keep94/marvin/lights"
   "github.com/keep94/maybe"
   "github.com/keep94/tasks"
+  "time"
 )
 
 const (
@@ -57,6 +58,23 @@ func (h *HueTask) Refresh() *HueTask {
 // GetDescription returns the description of this instance.
 func (h *HueTask) GetDescription() string {
   return h.Description
+}
+
+// AtTimeTask represents a hue task scheduled to run at a particular time
+// on a particular set of lights.
+// These instances must be treated as immutable.
+type AtTimeTask struct {
+  // The schedule Id
+  Id string
+
+  // The Hue Task
+  H *HueTask
+
+  // The lights to run on
+  Ls lights.Set
+
+  // The time to start
+  StartTime time.Time
 }
 
 // HueTaskList represents an immutable list of hue tasks.
