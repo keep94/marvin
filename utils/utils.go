@@ -645,10 +645,7 @@ type TimerTaskWrapper struct {
 
 func (t *TimerTaskWrapper) Do(e *tasks.Execution) {
   d := t.StartTime.Sub(e.Now())
-  if d <= 0 {
-    return
-  }
-  if e.Sleep(d) {
+  if d > 0 && e.Sleep(d) {
     t.executor.Begin(t.H, t.Ls)
   }
   t.store.Remove(t.TaskId())

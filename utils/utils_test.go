@@ -232,7 +232,12 @@ func TestMultiTimerPersistence(t *testing.T) {
           Tasks: storedAtTimeTasks, Activity: storeActivity}
   beginner := hueTaskBeginner{beginnerActivity}
   mt := utils.NewMultiTimerWithStoreAndClock(beginner, store, clock)
-  store.VerifyNoInteraction(t)
+  task22ScheduleId := "22:1399999999:All"
+  scheduleOfTaskId22 := mt.FindByScheduleId(task22ScheduleId)
+  store.VerifyRemoved(t, task22ScheduleId, true)
+  if scheduleOfTaskId22 != nil {
+      <-scheduleOfTaskId22.Done()
+  }
   expectedAtTimeTasks := []*ops.AtTimeTask{
       {H: &ops.HueTask{Id: 21, HueAction: intAction(121), Description: "Foo" },
        Ls: nil,
