@@ -85,6 +85,13 @@ func TestIsNoneIsAll(t *testing.T) {
   }
 }
 
+func TestInvString(t *testing.T) {
+  verifyInvString(t, lights.None)
+  verifyInvString(t, lights.All)
+  verifyInvString(t, nil)
+  verifyInvString(t, lights.New(2, 1, 4, 4))
+}
+
 func TestParseLights(t *testing.T) {
   actual, err := lights.Parse("")
   if err != nil {
@@ -206,6 +213,17 @@ func assertStrEqual(t *testing.T, expected, actual string) {
 func assertLightSetEqual(t *testing.T, expected, actual lights.Set) {
   if !reflect.DeepEqual(expected, actual) {
     t.Errorf("Expected %v, got %v", expected, actual)
+  }
+}
+
+func verifyInvString(t *testing.T, lset lights.Set) {
+  actual, err := lights.InvString(lset.String())
+  if err != nil {
+    t.Errorf("Got error %v", err)
+    return
+  }
+  if !reflect.DeepEqual(lset, actual) {
+    t.Errorf("Expected %v, got %v", lset, actual)
   }
 }
 

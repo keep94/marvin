@@ -31,6 +31,17 @@ func New(lightIds... int) Set {
   return lightSet
 }
 
+// Unlike Parse, InvString is the exact inverse of String.
+func InvString(s string) (result Set, err error) {
+  if s == "All" {
+    return nil, nil
+  }
+  if s == "None" {
+    return None, nil
+  }
+  return Parse(s)
+}
+
 // Parse parses comma separated light Ids as a Set.
 // An empty string or a string with just spaces parses as all lights.
 // Currently Parse will never return an instance representing no lights.
