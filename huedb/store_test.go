@@ -1,15 +1,37 @@
 package huedb_test
 
 import (
+  "bytes"
+  "code.google.com/p/gosqlite/sqlite"
+  "errors"
   "github.com/keep94/appcommon/db"
+  "github.com/keep94/appcommon/db/sqlite_db"
   "github.com/keep94/gofunctional3/functional"
   "github.com/keep94/gohue"
   "github.com/keep94/marvin/huedb"
+  "github.com/keep94/marvin/huedb/for_sqlite"
+  "github.com/keep94/marvin/huedb/sqlite_setup"
+  "github.com/keep94/marvin/lights"
   "github.com/keep94/marvin/ops"
   "github.com/keep94/maybe"
   "github.com/keep94/tasks"
+  "log"
   "reflect"
+  "strconv"
   "testing"
+  "time"
+)
+
+var (
+  kNilEncodedAtTimeTask = &huedb.EncodedAtTimeTask{}
+  kEncodeNotSupported = errors.New("huedb: Encode not supported")
+  kDecodeNotSupported = errors.New("huedb: Decode not supported")
+  kDbError = errors.New("huedb: Some database error.")
+)
+
+const (
+  kIdDoesNotSupportEncode = 101
+  kIdDoesNotSupportDecode = 109
 )
 
 var (
@@ -86,6 +108,139 @@ func TestHueTaskByIdError2(t *testing.T) {
   verifyErrorTask(t, task, 10003)
 }
 
+func TestAtTimeTaskStore(t *testing.T) {
+  var fakeStore fakeEncodedAtTimeTaskStore
+  var fakeEncoder fakeActionEncoder
+  buffer := bytes.NewBuffer(nil)
+  logger := log.New(buffer, "", 0)
+  store := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, &fakeStore, logger)
+  verifyAtTimeTaskStoreNormal(t, store)
+  if len(buffer.Bytes()) > 0 {
+    t.Errorf("No logs expected: %s", string(buffer.Bytes()))
+  }
+  // Just to be sure encoding of action works.
+  if fakeStore[0].Action != "162" {
+    t.Errorf("Expected encoded action 162, got %d", fakeStore[0].Action)
+  }
+}
+
+func TestAtTimeTaskStoreErrors(t *testing.T) {
+  fakeStore := fakeEncodedAtTimeTaskStoreWithErrors{
+      &huedb.EncodedAtTimeTask{Id: 1, Action: "35"},
+      &huedb.EncodedAtTimeTask{Id: 2, Action: "36"}}
+  var fakeEncoder fakeActionEncoder
+  buffer := bytes.NewBuffer(nil)
+  logger := log.New(buffer, "", 0)
+  store := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, fakeStore, logger)
+  first := &ops.AtTimeTask{
+      Id: "firstId",
+      H: &ops.HueTask{
+          Id: 31,
+          HueAction: intAction(131),
+      },
+  }
+  store.Add(first)
+  logLength := len(buffer.Bytes())
+  if logLength == 0 {
+    t.Error("Expected logs")
+  }
+  oldLength := logLength
+  store.Remove("someId")
+  logLength = len(buffer.Bytes())
+  if logLength <= oldLength {
+    t.Error("Expected logs to grow.")
+  }
+  oldLength = logLength
+  if len(store.All()) != 0 {
+    t.Error("Expected empty store.")
+  }
+  logLength = len(buffer.Bytes())
+  if logLength <= oldLength {
+    t.Error("Expected logs to grow.")
+  }
+}
+
+func TestAtTimeTaskStoreEncodeErrors(t *testing.T) {
+  var fakeStore fakeEncodedAtTimeTaskStore
+  var fakeEncoder fakeActionEncoder
+  buffer := bytes.NewBuffer(nil)
+  logger := log.New(buffer, "", 0)
+  store := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, &fakeStore, logger)
+  first := &ops.AtTimeTask{
+      Id: "firstId",
+      H: &ops.HueTask{
+          Id: 31,
+          HueAction: intAction(131),
+      },
+  }
+  store.Add(first)
+  if out := len(store.All()); out != 1 {
+    t.Errorf("Expected 1 entries, got %d", out)
+  }
+  if len(buffer.Bytes()) > 0 {
+    t.Error("Expected no logs")
+  }
+  badDecode := &ops.AtTimeTask{
+      Id: "badDecode",
+      H: &ops.HueTask{
+          Id: kIdDoesNotSupportDecode,
+          HueAction: intAction(999),
+      },
+  }
+  store.Add(badDecode)
+  if out := len(fakeStore); out != 2 {
+    t.Errorf("Expected 2 entries in store, got %d", out)
+  }
+  if len(buffer.Bytes()) > 0 {
+    t.Error("Expected no logs")
+  }
+  if out := len(store.All()); out != 1 {
+    t.Errorf("Expected 1 entries, got %d", out)
+  }
+  logLength := len(buffer.Bytes())
+  if logLength == 0 {
+    t.Error("Expected logs.")
+  }
+  badEncode := &ops.AtTimeTask{
+      Id: "badEncode",
+      H: &ops.HueTask{
+          Id: kIdDoesNotSupportEncode,
+          HueAction: intAction(777),
+      },
+  }
+  oldLength := logLength
+  store.Add(badEncode)
+  if out := len(fakeStore); out != 2 {
+    t.Errorf("Expected 2 entries in store, got %d", out)
+  }
+  logLength = len(buffer.Bytes())
+  if logLength <= oldLength {
+    t.Error("Expected logs to grow")
+  }
+}
+
+func TestAttimeTaskStoreSqlite(t *testing.T) {
+  var fakeEncoder fakeActionEncoder
+  buffer := bytes.NewBuffer(nil)
+  logger := log.New(buffer, "", 0)
+  db := openDb(t)
+  defer closeDb(t, db)
+  dbStore := for_sqlite.New(db)
+  store := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, dbStore, logger)
+  verifyAtTimeTaskStoreNormal(t, store)
+  if len(buffer.Bytes()) > 0 {
+    t.Errorf("No logs expected, got: %s", string(buffer.Bytes()))
+  }
+  dbStore.ClearEncodedAtTimeTasks(nil)
+  if len(store.All()) > 0 {
+    t.Error("Expected no at time tasks.")
+  }
+}
+
 func verifyErrorTask(t *testing.T, h *ops.HueTask, id int) {
   err := tasks.Run(tasks.TaskFunc(func(e *tasks.Execution) {
     h.Do(nil, nil, e)
@@ -98,6 +253,73 @@ func verifyErrorTask(t *testing.T, h *ops.HueTask, id int) {
   }
   if h.Description != "Error" {
     t.Errorf("Expected Description 'Error', got '%s'", h.Description)
+  }
+}
+
+func verifyAtTimeTaskStoreNormal(t *testing.T, store *huedb.AtTimeTaskStore) {
+  now := time.Unix(1300000000, 0)
+  first := &ops.AtTimeTask{
+      Id: "firstId",
+      H: &ops.HueTask{
+          Id: 31,
+          HueAction: intAction(131),
+          Description: "First Description",
+      },
+      Ls: nil,
+      StartTime: now.Add(17 * time.Minute),
+  }
+  second := &ops.AtTimeTask{
+      Id: "secondId",
+      H: &ops.HueTask{
+          Id: 41,
+          HueAction: intAction(141),
+          Description: "Second Description",
+      },
+      Ls: lights.New(1, 4),
+      StartTime: now.Add(23 * time.Minute),
+  }
+  third := &ops.AtTimeTask{
+      Id: "thirdId",
+      H: &ops.HueTask{
+          Id: 31,
+          HueAction: intAction(131),
+          Description: "Third Description",
+      },
+      Ls: lights.New(2, 5),
+      StartTime: now.Add(11 * time.Minute),
+  }
+  if len(store.All()) > 0 {
+    t.Error("Expected nothing in store.")
+  }
+  store.Add(first)
+  store.Add(second)
+
+  expected := []*ops.AtTimeTask{first, second}
+  actual := store.All()
+  if !reflect.DeepEqual(expected, actual) {
+    t.Errorf("Expected %v, got %v", expected, actual)
+  }
+  store.Add(third)
+
+  expected = []*ops.AtTimeTask{first, second, third}
+  actual = store.All()
+  if !reflect.DeepEqual(expected, actual) {
+    t.Errorf("Expected %v, got %v", expected, actual)
+  }
+  store.Remove("secondId")
+
+  expected = []*ops.AtTimeTask{first, third}
+  actual = store.All()
+  if !reflect.DeepEqual(expected, actual) {
+    t.Errorf("Expected %v, got %v", expected, actual)
+  }
+  // A noop
+  store.Remove("someBadId")
+
+  expected = []*ops.AtTimeTask{first, third}
+  actual = store.All()
+  if !reflect.DeepEqual(expected, actual) {
+    t.Errorf("Expected %v, got %v", expected, actual)
   }
 }
 
@@ -119,4 +341,114 @@ func (f fakeNamedColorsByIdRunner) NamedColorsById(
   }
   *nc = *f.ptr
   return nil
+}
+
+type fakeEncodedAtTimeTaskStoreWithErrors []*huedb.EncodedAtTimeTask
+
+func (f fakeEncodedAtTimeTaskStoreWithErrors) AddEncodedAtTimeTask(
+    t db.Transaction, task *huedb.EncodedAtTimeTask) error {
+  return kDbError
+}
+
+func (f fakeEncodedAtTimeTaskStoreWithErrors) RemoveEncodedAtTimeTaskByScheduleId(
+    t db.Transaction, scheduleId string) error {
+  return kDbError
+}
+
+func (f fakeEncodedAtTimeTaskStoreWithErrors) EncodedAtTimeTasks(
+    t db.Transaction, consumer functional.Consumer) error {
+  s := functional.NewStreamFromPtrs(f, nil)
+  consumer.Consume(s)
+  return kDbError
+}
+
+type fakeEncodedAtTimeTaskStore []*huedb.EncodedAtTimeTask
+
+func (f *fakeEncodedAtTimeTaskStore) AddEncodedAtTimeTask(
+    t db.Transaction, task *huedb.EncodedAtTimeTask) error {
+  task.Id = int64(len(*f) + 1)
+  stored := *task
+  *f = append(*f, &stored)
+  return nil
+}
+
+func (f fakeEncodedAtTimeTaskStore) RemoveEncodedAtTimeTaskByScheduleId(
+    t db.Transaction, scheduleId string) error {
+  for i := range f {
+    if f[i].ScheduleId == scheduleId {
+      f[i] = kNilEncodedAtTimeTask
+      return nil
+    }
+  }
+  return nil
+}
+
+func (f fakeEncodedAtTimeTaskStore) EncodedAtTimeTasks(
+    t db.Transaction, consumer functional.Consumer) error {
+  s := functional.NewStreamFromPtrs(f, nil)
+  s = functional.Filter(functional.NewFilterer(func(ptr interface{}) error {
+      p := ptr.(*huedb.EncodedAtTimeTask)
+      if p.Id != 0 {
+        return nil
+      }
+      return functional.Skipped
+  }),
+  s)
+  return consumer.Consume(s)
+}
+
+type fakeActionEncoder struct {
+}
+
+func (f fakeActionEncoder) Encode(
+    id int, action ops.HueAction) (string, error) {
+  if id == kIdDoesNotSupportEncode {
+    return "", kEncodeNotSupported
+  }
+  return strconv.Itoa(int(action.(intAction)) + id), nil
+}
+
+func (f fakeActionEncoder) Decode(
+    id int, encoded string) (action ops.HueAction, err error) {
+  if id == kIdDoesNotSupportDecode {
+    err = kDecodeNotSupported
+    return
+  }
+  var aid int
+  if aid, err = strconv.Atoi(encoded); err != nil {
+    return
+  }
+  action = intAction(aid - id)
+  return
+}
+
+type intAction int
+
+func (i intAction) Do(
+    ctx ops.Context, lightSet lights.Set, e *tasks.Execution) {
+}
+
+func (i intAction) UsedLights(lightSet lights.Set) lights.Set {
+  return lightSet
+}
+
+func closeDb(t *testing.T, db *sqlite_db.Db) {
+  if err := db.Close(); err != nil {
+    t.Errorf("Error closing database: %v", err)
+  }
+}
+
+func openDb(t *testing.T) *sqlite_db.Db {
+  conn, err := sqlite.Open(":memory:")
+  if err != nil {
+    t.Fatalf("Error opening database: %v", err)
+  }
+  db := sqlite_db.New(conn)
+  err = db.Do(func(conn *sqlite.Conn) error {
+    return sqlite_setup.SetUpTables(conn)
+  })
+  if err != nil {
+    t.Fatalf("Error creating tables: %v", err)
+  }
+  return db
 }

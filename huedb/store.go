@@ -9,6 +9,8 @@ import (
   "github.com/keep94/marvin/lights"
   "github.com/keep94/marvin/ops"
   "github.com/keep94/tasks"
+  "log"
+  "time"
 )
 
 var (
@@ -146,6 +148,141 @@ func (f *FutureHueTask) Refresh() *ops.HueTask {
 // GetDescription returns the description of this instance.
 func (f *FutureHueTask) GetDescription() string {
   return f.Description
+}
+
+// EncodedAtTimeTask is the form of ops.AtTimeTask that can be persisted to
+// a database.
+type EncodedAtTimeTask struct {
+  // The unique database dependent numeric ID of this scheduled task.
+  Id int64
+
+  // The string ID of this scheduled task. Database independent.
+  ScheduleId string
+
+  // The ID of the scheduled hue task.
+  HueTaskId int
+
+  // The encoded form of the hue action in the scheduled hue task.
+  Action string
+
+  // The description of the scheduled hue task.
+  Description string
+
+  // The encoded set of lights on which the scheduled hue task will run.
+  LightSet string
+
+  // The time the hue task is to run in seconds after Jan 1 1970 GMT
+  Time int64
+}
+
+// EncodedAtTimeTaskStore persists EncodedAtTimeTask instances.
+type EncodedAtTimeTaskStore interface {
+
+  // AddEncodedAtTimeTask adds a task.
+  AddEncodedAtTimeTask(t db.Transaction, task *EncodedAtTimeTask) error
+
+  // RemoveEncodedAtTimeTaskByScheduleId removes a task by schedule id.
+  RemoveEncodedAtTimeTaskByScheduleId(
+      t db.Transaction, scheduleId string) error
+
+  // EncodedAtTimeTasks fetches all tasks.
+  EncodedAtTimeTasks(t db.Transaction, consumer functional.Consumer) error
+}
+
+// ActionEncoder converts a hue action to a string.
+// id is the id of the enclosing hue task; action is what is to be encoded.
+type ActionEncoder interface {
+  Encode(id int, action ops.HueAction) (string, error)
+}
+
+// ActionDecoder converts a string back to a hue action.
+// id is the id of the enclosing hue task; encoded is the string form
+// of the hue action.
+type ActionDecoder interface {
+  Decode(hueTaskId int, encoded string) (ops.HueAction, error)
+}
+
+// AtTimeTaskStore is a store for ops.AtTimeTask instances.
+type AtTimeTaskStore struct {
+  encoder ActionEncoder
+  decoder ActionDecoder
+  store EncodedAtTimeTaskStore
+  logger *log.Logger
+}
+
+// NewAtTimeTaskStore creates and returns a new AtTimeTaskStore ready for use
+func NewAtTimeTaskStore(
+    encoder ActionEncoder,
+    decoder ActionDecoder,
+    store EncodedAtTimeTaskStore,
+    logger *log.Logger) *AtTimeTaskStore {
+  return &AtTimeTaskStore{
+      encoder: encoder, decoder: decoder, store: store, logger: logger}
+}
+
+// All returns all tasks.
+func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
+  var result []*ops.AtTimeTask
+  var placeholder EncodedAtTimeTask
+  consumer := consume.AppendPtrsTo(&result, nil)
+  consumer = functional.MapConsumer(
+      consumer, functional.NewMapper(s.mapper), &placeholder)
+  if err := s.store.EncodedAtTimeTasks(nil, consumer); err != nil {
+    s.logger.Println(err)
+    return nil
+  }
+  return result
+}
+
+// Add adds a new scheduled task
+func (s *AtTimeTaskStore) Add(task *ops.AtTimeTask) {
+  var encoded EncodedAtTimeTask
+  var err error
+  encoded.Action, err = s.encoder.Encode(task.H.Id, task.H.HueAction)
+  if err != nil {
+    s.logger.Printf("While encoding hue task %d: %v", task.H.Id, err)
+    return
+  }
+  encoded.ScheduleId = task.Id
+  encoded.HueTaskId = task.H.Id
+  encoded.Description = task.H.Description
+  encoded.LightSet = task.Ls.String()
+  encoded.Time = task.StartTime.Unix()
+  err = s.store.AddEncodedAtTimeTask(nil, &encoded)
+  if err != nil {
+    s.logger.Println(err)
+  }
+}
+
+// Remove removes a scheduled task by id
+func (s *AtTimeTaskStore) Remove(scheduleId string) {
+  err := s.store.RemoveEncodedAtTimeTaskByScheduleId(nil, scheduleId)
+  if err != nil {
+    s.logger.Println(err)
+  }
+}
+
+func (s *AtTimeTaskStore) mapper(srcPtr, destPtr interface{}) error {
+  encoded := srcPtr.(*EncodedAtTimeTask)
+  dest := destPtr.(*ops.AtTimeTask)
+  var err error
+  dest.H = &ops.HueTask{
+      Id: encoded.HueTaskId,
+      Description: encoded.Description,
+  }
+  dest.H.HueAction, err = s.decoder.Decode(encoded.HueTaskId, encoded.Action)
+  if err != nil {
+    s.logger.Printf("While decoding hue task %d: %v", encoded.HueTaskId, err)
+    return functional.Skipped
+  }
+  dest.Ls, err = lights.InvString(encoded.LightSet)
+  if err != nil {
+    s.logger.Printf("Error parsing light set %s", encoded.LightSet)
+    return functional.Skipped
+  }
+  dest.Id = encoded.ScheduleId
+  dest.StartTime = time.Unix(encoded.Time, 0)
+  return nil
 }
 
 type errAction struct {

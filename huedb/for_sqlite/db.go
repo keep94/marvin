@@ -21,6 +21,11 @@ const (
   kSQLAddNamedColors = "insert into named_colors (colors, description) values (?, ?)"
   kSQLUpdateNamedColors = "update named_colors set colors = ?, description = ? where id = ?"
   kSQLRemoveNamedColors = "delete from named_colors where id = ?"
+
+  kSQLAddEncodedAtTimeTask = "insert into at_time_tasks (schedule_id, hue_task_id, action, description, light_set, time) values (?, ?, ?, ?, ?, ?)"
+  kSQLEncodedAtTimeTasks = "select id, schedule_id, hue_task_id, action, description, light_set, time from at_time_tasks order by 1"
+  kSQLRemoveEncodedAtTimeTaskByScheduleId = "delete from at_time_tasks where schedule_id = ?"
+  kSQLClearEncodedAtTimeTasks = "delete from at_time_tasks"
 )
 
 type Store struct {
@@ -85,6 +90,42 @@ func (s Store) UpdateNamedColors(
 func (s Store) RemoveNamedColors(t db.Transaction, id int64) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
     return conn.Exec(kSQLRemoveNamedColors, id)
+  })
+}
+
+func (s Store) EncodedAtTimeTasks(
+    t db.Transaction, consumer functional.Consumer) error {
+  return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
+    return sqlite_db.ReadMultiple(
+        conn,
+        &rawEncodedAtTimeTask{},
+        consumer,
+        kSQLEncodedAtTimeTasks)
+  })
+}
+
+func (s Store) AddEncodedAtTimeTask(
+    t db.Transaction, task *huedb.EncodedAtTimeTask) error {
+  return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
+    return sqlite_db.AddRow(
+        conn,
+        &rawEncodedAtTimeTask{},
+        task,
+        &task.Id,
+        kSQLAddEncodedAtTimeTask)
+  })
+}
+
+func (s Store) RemoveEncodedAtTimeTaskByScheduleId(
+    t db.Transaction, scheduleId string) error {
+  return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
+    return conn.Exec(kSQLRemoveEncodedAtTimeTaskByScheduleId, scheduleId)
+  })
+}
+
+func (s Store) ClearEncodedAtTimeTasks(t db.Transaction) error {
+  return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
+    return conn.Exec(kSQLClearEncodedAtTimeTasks)
   })
 }
 
@@ -196,5 +237,22 @@ func (r *rawNamedColors) Marshall() error {
   }
   r.colors = strings.Join(marshalled, "|")
   return nil
+}
+
+type rawEncodedAtTimeTask struct {
+  *huedb.EncodedAtTimeTask
+  sqlite_db.SimpleRow
+}
+
+func (r *rawEncodedAtTimeTask) Ptrs() []interface{} {
+  return []interface{}{&r.Id, &r.ScheduleId, &r.HueTaskId, &r.Action, &r.Description, &r.LightSet, &r.Time}
+}
+
+func (r *rawEncodedAtTimeTask) Values() []interface{} {
+  return []interface{}{ r.ScheduleId, r.HueTaskId, r.Action, r.Description, r.LightSet, r.Time, r.Id}
+}
+
+func (r *rawEncodedAtTimeTask) Pair(ptr interface{}) {
+  r.EncodedAtTimeTask = ptr.(*huedb.EncodedAtTimeTask)
 }
 
