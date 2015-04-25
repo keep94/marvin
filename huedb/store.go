@@ -222,12 +222,19 @@ func NewAtTimeTaskStore(
 
 // All returns all tasks.
 func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
+  var allEncoded []*EncodedAtTimeTask
+  consumer := consume.AppendPtrsTo(&allEncoded, nil)
+  if err := s.store.EncodedAtTimeTasks(nil, consumer); err != nil {
+    s.logger.Println(err)
+    return nil
+  }
   var result []*ops.AtTimeTask
   var placeholder EncodedAtTimeTask
-  consumer := consume.AppendPtrsTo(&result, nil)
+  consumer = consume.AppendPtrsTo(&result, nil)
   consumer = functional.MapConsumer(
       consumer, functional.NewMapper(s.mapper), &placeholder)
-  if err := s.store.EncodedAtTimeTasks(nil, consumer); err != nil {
+  encodedStream := functional.NewStreamFromPtrs(allEncoded, nil)
+  if err := consumer.Consume(encodedStream); err != nil {
     s.logger.Println(err)
     return nil
   }
