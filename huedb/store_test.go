@@ -8,6 +8,7 @@ import (
   "github.com/keep94/appcommon/db/sqlite_db"
   "github.com/keep94/gofunctional3/functional"
   "github.com/keep94/gohue"
+  "github.com/keep94/marvin/dynamic"
   "github.com/keep94/marvin/huedb"
   "github.com/keep94/marvin/huedb/for_sqlite"
   "github.com/keep94/marvin/huedb/sqlite_setup"
@@ -106,6 +107,61 @@ func TestHueTaskByIdError(t *testing.T) {
 func TestHueTaskByIdError2(t *testing.T) {
   task := huedb.HueTaskById(nil, 10003)
   verifyErrorTask(t, task, 10003)
+}
+
+func TestActionEncoder(t *testing.T) {
+  fakeStore := fakeDynamicHueTaskStore{
+      35: &dynamic.HueTask{Id: 35, Factory: fakeSpecificActionEncoder(135)},
+      36: &dynamic.HueTask{Id: 36, Factory: badFactory{}},
+  }
+  ae := huedb.NewActionEncoder(fakeStore)
+  if actual, err := ae.Encode(10007, intAction(52)); actual != "" || err != nil {
+    t.Errorf("Expected empty string and no error, got %s with %v", actual, err)
+  }
+  if _, err := ae.Encode(37, intAction(52)); err == nil {
+    t.Error("Expected an error, bad id.")
+  }
+  if _, err := ae.Encode(36, intAction(52)); err == nil {
+    t.Error("Expected an error, bad factory.")
+  }
+  if actual, err := ae.Encode(35, intAction(52)); actual != "187" || err != nil {
+    t.Errorf("Expected '187' and no error, got %s with %v", actual, err)
+  }
+}
+
+func TestActionDecoder(t *testing.T) {
+  fakeStore := fakeDynamicHueTaskStore{
+      42: &dynamic.HueTask{Id: 42, Factory: fakeSpecificActionEncoder(142)},
+      43: &dynamic.HueTask{Id: 43, Factory: badFactory{}},
+      44: &dynamic.HueTask{Id: 44, Factory: fakeSpecificActionEncoder(kIdDoesNotSupportDecode)},
+  }
+  fakeDbStore := fakeNamedColorsByIdRunner{kFakeStore[0]}
+  ad := huedb.NewActionDecoder(fakeStore, fakeDbStore)
+  actual, err := ad.Decode(10002, "")
+  expected := ops.StaticHueAction(kColorMap1)
+  if err != nil || !reflect.DeepEqual(expected, actual) {
+    t.Error("Got error or wrong hue action from dbStore.")
+  }
+  _, err = ad.Decode(10003, "")
+  if err == nil {
+    t.Error("Expectd error getting hue action from dbStore.")
+  }
+  actual, err = ad.Decode(42, "180")
+  if int(actual.(intAction)) != 38 || err != nil {
+    t.Errorf("Expected 38 with no error, got %v with %v", actual, err)
+  }
+  _, err = ad.Decode(43, "180")
+  if err == nil {
+    t.Error("Expectd error factory does not implement SpecificActionDecoder.")
+  }
+  _, err = ad.Decode(44, "180")
+  if err == nil {
+    t.Error("Expectd error decoding.")
+  }
+  _, err = ad.Decode(45, "180")
+  if err == nil {
+    t.Error("Expected error bad hue task id.")
+  }
 }
 
 func TestAtTimeTaskStore(t *testing.T) {
@@ -437,6 +493,44 @@ func closeDb(t *testing.T, db *sqlite_db.Db) {
     t.Errorf("Error closing database: %v", err)
   }
 }
+
+type fakeDynamicHueTaskStore map[int]*dynamic.HueTask
+
+func (f fakeDynamicHueTaskStore) ById(id int) *dynamic.HueTask {
+  return f[id]
+}
+
+type fakeSpecificActionEncoder int
+
+func (f fakeSpecificActionEncoder) Encode(a ops.HueAction) string {
+  return strconv.Itoa(int(a.(intAction)) + int(f))
+}
+
+func (f fakeSpecificActionEncoder) Decode(s string) (ops.HueAction, error) {
+  var decoder fakeActionEncoder
+  return decoder.Decode(int(f), s)
+}
+
+func (f fakeSpecificActionEncoder) Params() dynamic.NamedParamList {
+  return nil
+}
+
+func (f fakeSpecificActionEncoder) New(values []interface{}) ops.HueAction {
+  return nil
+}
+
+type badFactory struct {
+}
+
+func (b badFactory) Params() dynamic.NamedParamList {
+  return nil
+}
+
+func (b badFactory) New(values []interface{}) ops.HueAction {
+  return nil
+}
+
+
 
 func openDb(t *testing.T) *sqlite_db.Db {
   conn, err := sqlite.Open(":memory:")

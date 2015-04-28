@@ -3,9 +3,11 @@ package huedb
 
 import (
   "errors"
+  "fmt"
   "github.com/keep94/appcommon/db"
   "github.com/keep94/gofunctional3/consume"
   "github.com/keep94/gofunctional3/functional"
+  "github.com/keep94/marvin/dynamic"
   "github.com/keep94/marvin/lights"
   "github.com/keep94/marvin/ops"
   "github.com/keep94/tasks"
@@ -190,16 +192,110 @@ type EncodedAtTimeTaskStore interface {
 }
 
 // ActionEncoder converts a hue action to a string.
-// id is the id of the enclosing hue task; action is what is to be encoded.
+// hueTaskId is the id of the enclosing hue task;
+// action is what is to be encoded.
 type ActionEncoder interface {
-  Encode(id int, action ops.HueAction) (string, error)
+  Encode(hueTaskId int, action ops.HueAction) (string, error)
 }
 
 // ActionDecoder converts a string back to a hue action.
-// id is the id of the enclosing hue task; encoded is the string form
+// hueTaskId is the id of the enclosing hue task; encoded is the string form
 // of the hue action.
 type ActionDecoder interface {
   Decode(hueTaskId int, encoded string) (ops.HueAction, error)
+}
+
+// SpecificActionEncoder converts a specific type of hue action to a string.
+type SpecificActionEncoder interface {
+  Encode(action ops.HueAction) string
+}
+
+// SpecificActionDecoder converts a string back to a specific type of
+// hue action.
+type SpecificActionDecoder interface {
+  Decode(encoded string) (ops.HueAction, error)
+}
+
+// DynamicHueTaskStore fetches a dynamic.HueTask by Id. If no task can be
+// fetched, returns nil.
+type DynamicHueTaskStore interface {
+  ById(id int) *dynamic.HueTask
+}
+
+// NewActionEncoder returns an ActionEncoder.
+// The Encode method of the returned ActionEncoder works the following way.
+// If hueTaskId < ops.PersistentTaskIdOffset, then Encode uses store to
+// look up the HueTask by hueTaskId. Encode delegates to the Factory field
+// of the fetched hue task after converting it to a SpecificActionEncoder.
+// Encode reports an error if the Factory field cannot be converted to
+// a SpecificActionEncoder.
+// If hueTaskId >= ops.PersistentTaskIdOffset, then Encode returns the
+// empty string with no error.
+func NewActionEncoder(store DynamicHueTaskStore) ActionEncoder {
+  return basicActionEncoder{store}
+}
+
+// NewActionDecoder returns an ActionDecoder. 
+// The Decode method of the returned ActionDecoder works the following way.
+// If hueTaskId < ops.PersistentTaskIdOffset, then Decode uses store to
+// look up the HueTask by hueTaskId. Decode delegates to the Factory field
+// of the fetched hue task after converting it to a SpecificActionDecoder.
+// Decode reports an error if the Factory field cannot be converted to
+// a SpecificActionDecoder.
+// If hueTaskId >= ops.PersistentTaskIdOffset, then Decode uses dbStore
+// to look up the hue action with id: hueTaskId - ops.PersistentTaskIdOffset.
+func NewActionDecoder(
+    store DynamicHueTaskStore,
+    dbStore NamedColorsByIdRunner) ActionDecoder {
+  return &basicActionDecoder{store: store, dbStore: dbStore}
+}
+
+type basicActionEncoder struct {
+  store DynamicHueTaskStore
+}
+
+func (b basicActionEncoder) Encode(
+    id int, action ops.HueAction) (string, error) {
+  if id >= ops.PersistentTaskIdOffset {
+    return "", nil
+  }
+  task := b.store.ById(id)
+  if task == nil {
+    return "", errors.New(fmt.Sprintf("No such Dynamic HueTask ID: %d", id))
+  }
+  encoder, ok := task.Factory.(SpecificActionEncoder)
+  if !ok {
+    return "", errors.New(fmt.Sprintf(
+        "Dynamic HueTask ID doesn't implement SpecificActionEncoder: %d", id))
+  }
+  return encoder.Encode(action), nil
+}
+
+type basicActionDecoder struct {
+  store DynamicHueTaskStore
+  dbStore NamedColorsByIdRunner
+}
+
+func (b *basicActionDecoder) Decode(
+    id int, encoded string) (ops.HueAction, error) {
+  if id >= ops.PersistentTaskIdOffset {
+    var namedColors ops.NamedColors
+    if err := b.dbStore.NamedColorsById(
+        nil, int64(id - ops.PersistentTaskIdOffset), &namedColors); err != nil {
+      return nil, err
+    }
+    return ops.StaticHueAction(namedColors.Colors), nil
+  }
+  task := b.store.ById(id)
+  if task == nil {
+    return nil, errors.New(fmt.Sprintf("No such Dynamic HueTask ID: %d", id))
+  }
+  decoder, ok := task.Factory.(SpecificActionDecoder)
+  if !ok {
+    return nil, errors.New(fmt.Sprintf(
+            "Dynamic HueTask ID doesn't implement SpecificActionDecoder: %d", id))
+  }
+  return decoder.Decode(encoded)
 }
 
 // AtTimeTaskStore is a store for ops.AtTimeTask instances.
