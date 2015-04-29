@@ -2,6 +2,9 @@
 package dynamic
 
 import (
+  "bytes"
+  "encoding/json"
+  "errors"
   "fmt"
   "github.com/keep94/gohue"
   "github.com/keep94/marvin/ops"
@@ -18,6 +21,13 @@ const (
 
   // Default name of brightness parameter
   BrightnessParamName = "Bri"
+)
+
+var (
+  // Reported if no value exists for a key in ParamSerializer
+  ErrNoValue = errors.New("dynamic: No value.")
+
+  errBadValue = errors.New("dynamic: Bad value.")
 )
 
 // Interface Param represents a single parameter for generating a ops.HueTask.
@@ -224,6 +234,77 @@ func (l HueTaskList) SortByDescriptionIgnoreCase() HueTaskList {
   copy(result, l)
   sort.Sort(byDescriptionIgnoreCase(result))
   return result
+}
+
+// ParamSerializer encodes parameters for hue tasks as a string.
+type ParamSerializer map[string][]string
+
+// Encode encodes stored parameters as a single string.
+func (p ParamSerializer) Encode() string {
+  var buffer bytes.Buffer
+  encoder := json.NewEncoder(&buffer)
+  if  err := encoder.Encode(p); err != nil {
+    panic(err)
+  }
+  return buffer.String()
+}
+
+// NewParamSerializer decodes a string back into parameters. Caller can
+// safely modify the returned value.
+func NewParamSerializer(s string) (ParamSerializer, error) {
+  buffer := bytes.NewBufferString(s)
+  decoder := json.NewDecoder(buffer)
+  var result ParamSerializer
+  err := decoder.Decode(&result)
+  return result, err
+}
+
+// SetInt stores an int value and returns this instance for chaining.
+func (p ParamSerializer) SetInt(key string, value int) ParamSerializer {
+  p[key] = []string{strconv.Itoa(value)}
+  return p
+}
+
+// GetInt returns the stored int value. If no int value stored under key then
+// returns ErrNoValue.
+func (p ParamSerializer) GetInt(key string) (result int, err error) {
+  value := p[key]
+  if len(value) != 1 {
+    err = ErrNoValue
+    return
+  }
+  return strconv.Atoi(value[0])
+}
+
+// SetColor stores an color value and returns this instance for chaining.
+func (p ParamSerializer) SetColor(key string, color gohue.Color) ParamSerializer {
+  x := int(color.X() * 10000.0 + 0.5)
+  y := int(color.Y() * 10000.0 + 0.5)
+  p[key] = []string{strconv.Itoa(x), strconv.Itoa(y)}
+  return p
+}
+
+// GetColor returns the stored Color value. If no Color value stored under key
+// then returns ErrNoValue.
+func (p ParamSerializer) GetColor(key string) (result gohue.Color, err error) {
+  value := p[key]
+  if len(value) != 2 {
+    err = ErrNoValue
+    return
+  }
+  var x, y int
+  if x, err = strconv.Atoi(value[0]); err != nil {
+    return
+  }
+  if y, err = strconv.Atoi(value[1]); err != nil {
+    return
+  }
+  if x < 0 || x > 10000 || y < 0 || y > 10000 {
+    err = errBadValue
+    return
+  }
+  result = gohue.NewColor(float64(x) / 10000.0, float64(y) / 10000.0)
+  return
 }
 
 // PlainFactory implements Factory and lets user provide brightness and
