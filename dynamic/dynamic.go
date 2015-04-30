@@ -265,15 +265,42 @@ func (p ParamSerializer) SetInt(key string, value int) ParamSerializer {
   return p
 }
 
-// GetInt returns the stored int value. If no int value stored under key then
-// returns ErrNoValue.
+// GetInt returns the stored int value. If no value stored under key
+// then returns ErrNoValue. May return a different error if the value
+// stored is corrupted or cannot be converted to an int.
 func (p ParamSerializer) GetInt(key string) (result int, err error) {
-  value := p[key]
-  if len(value) != 1 {
+  value, ok := p[key]
+  if !ok {
     err = ErrNoValue
     return
   }
+  if len(value) != 1 {
+    err = errBadValue
+    return
+  }
   return strconv.Atoi(value[0])
+}
+
+// SetBrightness stores a brightness value and returns this instance
+// for chaining.
+func (p ParamSerializer) SetBrightness(key string, value uint8) ParamSerializer {
+  return p.SetInt(key, int(value))
+}
+
+// GetBrightness returns the stored brightness. If no value stored under key
+// then returns ErrNoValue. May return a different error if the value
+// stored is corrupted or cannot be converted to a brightness.
+func (p ParamSerializer) GetBrightness(key string) (result uint8, err error) {
+  anint, err := p.GetInt(key)
+  if err != nil {
+    return
+  }
+  if anint < 0 || anint > 255 {
+    err = errBadValue
+    return
+  }
+  result = uint8(anint)
+  return
 }
 
 // SetColor stores an color value and returns this instance for chaining.
@@ -284,12 +311,17 @@ func (p ParamSerializer) SetColor(key string, color gohue.Color) ParamSerializer
   return p
 }
 
-// GetColor returns the stored Color value. If no Color value stored under key
-// then returns ErrNoValue.
+// GetColor returns the stored Color value. If no value stored under key
+// then returns ErrNoValue. May return a different error if the value
+// stored is corrupted or cannot be converted to a Color.
 func (p ParamSerializer) GetColor(key string) (result gohue.Color, err error) {
-  value := p[key]
-  if len(value) != 2 {
+  value, ok := p[key]
+  if !ok {
     err = ErrNoValue
+    return
+  }
+  if len(value) != 2 {
+    err = errBadValue
     return
   }
   var x, y int
@@ -334,6 +366,33 @@ func (p PlainFactory) NewExplicit(
   return plainAction(color, brightness), []string{colorString, briStr}
 }
 
+// Encode encodes a HueAction that this instance created as a string
+func (p PlainFactory) Encode(action ops.HueAction) string {
+  color, brightness := getColorAndBrightnessFromAction(action)
+  serializer := make(ParamSerializer)
+  serializer.SetColor(ColorParamName, color)
+  serializer.SetBrightness(BrightnessParamName, brightness)
+  return serializer.Encode()
+}
+
+// Decode decodes a string that Encode produced back into a HueAction.
+func (p PlainFactory) Decode(s string) (action ops.HueAction, err error) {
+  serializer, err := NewParamSerializer(s)
+  if err != nil {
+    return
+  }
+  color, err := serializer.GetColor(ColorParamName)
+  if err != nil {
+    return
+  }
+  brightness, err := serializer.GetBrightness(BrightnessParamName)
+  if err != nil {
+    return
+  }
+  action = plainAction(color, brightness)
+  return
+}
+
 var (
   kPlainParams = NamedParamList {
       {Name: ColorParamName, Param: ColorPicker(gohue.White, "White")},
@@ -365,6 +424,28 @@ func (p PlainColorFactory) NewExplicit(
   return plainAction(p.Color, brightness), []string{briStr}
 }
 
+// Encode encodes a HueAction that this instance created as a string
+func (p PlainColorFactory) Encode(action ops.HueAction) string {
+  _, brightness := getColorAndBrightnessFromAction(action)
+  serializer := make(ParamSerializer)
+  serializer.SetBrightness(BrightnessParamName, brightness)
+  return serializer.Encode()
+}
+
+// Decode decodes a string that Encode produced back into a HueAction.
+func (p PlainColorFactory) Decode(s string) (action ops.HueAction, err error) {
+  serializer, err := NewParamSerializer(s)
+  if err != nil {
+    return
+  }
+  brightness, err := serializer.GetBrightness(BrightnessParamName)
+  if err != nil {
+    return
+  }
+  action = plainAction(p.Color, brightness)
+  return
+}
+
 func plainAction(color gohue.Color, brightness uint8) ops.HueAction {
   return ops.StaticHueAction{
       0: ops.ColorBrightness{
@@ -372,6 +453,18 @@ func plainAction(color gohue.Color, brightness uint8) ops.HueAction {
              maybe.NewUint8(brightness),
          },
   }
+}
+
+func getColorAndBrightnessFromAction(action ops.HueAction) (gohue.Color, uint8) {
+  anAction := action.(ops.StaticHueAction)
+  colorBrightness, ok := anAction[0]
+  if !ok {
+    panic("StaticHueAction does not have global color and brightness")
+  }
+  if !colorBrightness.Color.Valid || !colorBrightness.Brightness.Valid {
+    panic("StaticHueAction global color and brightness missing values.")
+  }
+  return colorBrightness.Color.Color, colorBrightness.Brightness.Value
 }
 
 var (
@@ -460,6 +553,14 @@ func (f constantFactory) Params() NamedParamList {
 
 func (f constantFactory) New(values []interface{}) ops.HueAction {
   return f.Action
+}
+
+func (f constantFactory) Encode(a ops.HueAction) string {
+  return ""
+}
+
+func (f constantFactory) Decode(s string) (ops.HueAction, error) {
+  return f.Action, nil
 }
 
 type byDescriptionIgnoreCase HueTaskList

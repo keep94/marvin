@@ -3,6 +3,7 @@ package dynamic_test
 import (
   "github.com/keep94/gohue"
   "github.com/keep94/marvin/dynamic"
+  "github.com/keep94/marvin/dynamic/testutils"
   "github.com/keep94/marvin/ops"
   "github.com/keep94/maybe"
   "net/url"
@@ -64,11 +65,13 @@ func TestPicker(t *testing.T) {
 func TestConstant(t *testing.T) {
   anAction := ops.StaticHueAction{
       0: {gohue.NewMaybeColor(gohue.Blue), maybe.NewUint8(87)}}
+  factory := dynamic.Constant(anAction)
   aTask := &dynamic.HueTask{
       Id: 112,
       Description: "Baz",
-      Factory: dynamic.Constant(anAction),
+      Factory: factory,
   }
+  testutils.VerifySerialization(t, factory, anAction)
 
   urlValues := make(url.Values)
   expected := &ops.HueTask{
@@ -144,6 +147,7 @@ func TestPlainFactoryNewExplicit(t *testing.T) {
   if !reflect.DeepEqual(expected, actual) {
     t.Errorf("Expected %v, got %v", expected, actual)
   }
+  testutils.VerifySerialization(t, aTask.Factory, actual.HueAction)
 }
 
 func TestPlainColorFactoryNewExplicit(t *testing.T) {
@@ -164,6 +168,7 @@ func TestPlainColorFactoryNewExplicit(t *testing.T) {
   if !reflect.DeepEqual(expected, actual) {
     t.Errorf("Expected %v, got %v", expected, actual)
   }
+  testutils.VerifySerialization(t, aTask.Factory, actual.HueAction)
 }
 
 func TestSortByDescriptionIgnoreCase(t *testing.T) {
@@ -184,7 +189,7 @@ func TestSortByDescriptionIgnoreCase(t *testing.T) {
 }
 
 func TestParamSerializerBadValue(t *testing.T) {
-  s := `{"bar":["6082","10001"],"baz":["6082", "-1"],"a":["-1","6082"],"b":["6082","10001"],"foo":["a","3"],"c":["3","a"],"d":["l"]}`
+  s := `{"bar":["6082","10001"],"baz":["6082", "-1"],"a":["-1","6082"],"b":["6082","10001"],"foo":["a","3"],"c":["3","a"],"d":["l"],"e":["-1"],"f":["256"]}`
   q, err := dynamic.NewParamSerializer(s)
   if err != nil {
     t.Fatal("Got error deserializing.")
@@ -210,11 +215,21 @@ func TestParamSerializerBadValue(t *testing.T) {
   if _, err := q.GetInt("d"); err == nil || err == dynamic.ErrNoValue {
     t.Error("Expected to get error.")
   }
+  if _, err := q.GetBrightness("d"); err == nil || err == dynamic.ErrNoValue {
+    t.Error("Expected to get error.")
+  }
+  if _, err := q.GetBrightness("e"); err == nil || err == dynamic.ErrNoValue {
+    t.Error("Expected to get error.")
+  }
+  if _, err := q.GetBrightness("f"); err == nil || err == dynamic.ErrNoValue {
+    t.Error("Expected to get error.")
+  }
 }
 
 func TestParamSerializer(t *testing.T) {
   p := make(dynamic.ParamSerializer)
   p.SetInt("foo", 15).SetInt("bar", 35).SetInt("baz", -55).SetInt("foo", 20)
+  p.SetBrightness("dim", 1).SetBrightness("bright", 200)
   p.SetColor("bar", gohue.Red).SetColor("green", gohue.Green)
   p.SetColor("bar", gohue.Orange)
   s := p.SetColor("pink", gohue.Pink).SetInt("pink", 7).Encode()
@@ -228,10 +243,22 @@ func TestParamSerializer(t *testing.T) {
   if out, err := q.GetInt("baz"); out != -55 || err != nil {
     t.Errorf("Expected -55, got %d", out)
   }
-  if _, err := q.GetInt("bar"); err != dynamic.ErrNoValue {
-    t.Errorf("Expected to get ErrNoValue, got %v", err)
+  if _, err := q.GetInt("bar"); err == nil || err == dynamic.ErrNoValue {
+    t.Errorf("Expected to get an undefined error, got %v", err)
   }
   if _, err := q.GetInt("notthere"); err != dynamic.ErrNoValue {
+    t.Errorf("Expected to get ErrNoValue, got %v", err)
+  }
+  if out, err := q.GetBrightness("dim"); out != 1 || err != nil {
+    t.Errorf("Expected 1, got %d", out)
+  }
+  if out, err := q.GetBrightness("bright"); out != 200 || err != nil {
+    t.Errorf("Expected 200, got %d", out)
+  }
+  if _, err := q.GetBrightness("baz"); err == nil || err == dynamic.ErrNoValue {
+    t.Errorf("Expected to get an undefined error, got %v", err)
+  }
+  if _, err := q.GetBrightness("notthere"); err != dynamic.ErrNoValue {
     t.Errorf("Expected to get ErrNoValue, got %v", err)
   }
   if out, err := q.GetColor("bar"); out != gohue.Orange || err != nil {
@@ -240,8 +267,8 @@ func TestParamSerializer(t *testing.T) {
   if out, err := q.GetColor("green"); out != gohue.Green || err != nil {
     t.Errorf("Expected green, got %v", out)
   }
-  if _, err := q.GetColor("pink"); err != dynamic.ErrNoValue {
-    t.Errorf("Expected to get ErrNoValue, got %v", err)
+  if _, err := q.GetColor("pink"); err == nil || err == dynamic.ErrNoValue {
+    t.Errorf("Expected to get an undefined error, got %v", err)
   }
   if _, err := q.GetColor("notthere"); err != dynamic.ErrNoValue {
     t.Errorf("Expected to get ErrNoValue, got %v", err)
