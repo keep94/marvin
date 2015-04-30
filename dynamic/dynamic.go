@@ -133,9 +133,27 @@ type Factory interface {
   New(values []interface{}) ops.HueAction
 }
 
+// Encoder converts a specific type of hue action to a string.
+type Encoder interface {
+  Encode(action ops.HueAction) string
+}
+
+// Decoder converts a string back to a specific type of
+// hue action.
+type Decoder interface {
+  Decode(encoded string) (ops.HueAction, error)
+}
+
+type FactoryEncoderDecoder interface {
+  Factory
+  Encoder
+  Decoder
+}
+
+
 // Constant returns a Factory that provides no user inputs and always
 // generates the supplied ops.HueAction.
-func Constant(a ops.HueAction) Factory {
+func Constant(a ops.HueAction) FactoryEncoderDecoder {
   return constantFactory{a}
 }
 

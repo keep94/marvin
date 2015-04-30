@@ -205,17 +205,6 @@ type ActionDecoder interface {
   Decode(hueTaskId int, encoded string) (ops.HueAction, error)
 }
 
-// SpecificActionEncoder converts a specific type of hue action to a string.
-type SpecificActionEncoder interface {
-  Encode(action ops.HueAction) string
-}
-
-// SpecificActionDecoder converts a string back to a specific type of
-// hue action.
-type SpecificActionDecoder interface {
-  Decode(encoded string) (ops.HueAction, error)
-}
-
 // DynamicHueTaskStore fetches a dynamic.HueTask by Id. If no task can be
 // fetched, returns nil.
 type DynamicHueTaskStore interface {
@@ -226,9 +215,9 @@ type DynamicHueTaskStore interface {
 // The Encode method of the returned ActionEncoder works the following way.
 // If hueTaskId < ops.PersistentTaskIdOffset, then Encode uses store to
 // look up the HueTask by hueTaskId. Encode delegates to the Factory field
-// of the fetched hue task after converting it to a SpecificActionEncoder.
+// of the fetched hue task after converting it to a dynamic.Encoder.
 // Encode reports an error if the Factory field cannot be converted to
-// a SpecificActionEncoder.
+// a dynamic.Encoder.
 // If hueTaskId >= ops.PersistentTaskIdOffset, then Encode returns the
 // empty string with no error.
 func NewActionEncoder(store DynamicHueTaskStore) ActionEncoder {
@@ -239,9 +228,9 @@ func NewActionEncoder(store DynamicHueTaskStore) ActionEncoder {
 // The Decode method of the returned ActionDecoder works the following way.
 // If hueTaskId < ops.PersistentTaskIdOffset, then Decode uses store to
 // look up the HueTask by hueTaskId. Decode delegates to the Factory field
-// of the fetched hue task after converting it to a SpecificActionDecoder.
+// of the fetched hue task after converting it to a dynamic.Decoder.
 // Decode reports an error if the Factory field cannot be converted to
-// a SpecificActionDecoder.
+// a dynamic.Decoder.
 // If hueTaskId >= ops.PersistentTaskIdOffset, then Decode uses dbStore
 // to look up the hue action with id: hueTaskId - ops.PersistentTaskIdOffset.
 func NewActionDecoder(
@@ -263,10 +252,10 @@ func (b basicActionEncoder) Encode(
   if task == nil {
     return "", errors.New(fmt.Sprintf("No such Dynamic HueTask ID: %d", id))
   }
-  encoder, ok := task.Factory.(SpecificActionEncoder)
+  encoder, ok := task.Factory.(dynamic.Encoder)
   if !ok {
     return "", errors.New(fmt.Sprintf(
-        "Dynamic HueTask ID doesn't implement SpecificActionEncoder: %d", id))
+        "Dynamic HueTask ID doesn't implement dynamic.Encoder: %d", id))
   }
   return encoder.Encode(action), nil
 }
@@ -290,10 +279,10 @@ func (b *basicActionDecoder) Decode(
   if task == nil {
     return nil, errors.New(fmt.Sprintf("No such Dynamic HueTask ID: %d", id))
   }
-  decoder, ok := task.Factory.(SpecificActionDecoder)
+  decoder, ok := task.Factory.(dynamic.Decoder)
   if !ok {
     return nil, errors.New(fmt.Sprintf(
-            "Dynamic HueTask ID doesn't implement SpecificActionDecoder: %d", id))
+            "Dynamic HueTask ID doesn't implement dynamic.Decoder: %d", id))
   }
   return decoder.Decode(encoded)
 }

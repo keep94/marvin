@@ -7,16 +7,11 @@ import (
   "testing"
 )
 
-type encoderDecoder interface {
-  Encode(action ops.HueAction) string
-  Decode(encoded string) (ops.HueAction, error)
-}
-
 // VerifySerialization verifies that action can be serialized and
 // deserialized via factory.
 func VerifySerialization(
     t *testing.T, factory dynamic.Factory, action ops.HueAction) {
-  ed := factory.(encoderDecoder)
+  ed := factory.(dynamic.FactoryEncoderDecoder)
   encoded := ed.Encode(action)
   decoded, err := ed.Decode(encoded)
   if err != nil || !reflect.DeepEqual(action, decoded) {
