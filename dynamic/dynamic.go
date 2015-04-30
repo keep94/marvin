@@ -475,13 +475,7 @@ func plainAction(color gohue.Color, brightness uint8) ops.HueAction {
 
 func getColorAndBrightnessFromAction(action ops.HueAction) (gohue.Color, uint8) {
   anAction := action.(ops.StaticHueAction)
-  colorBrightness, ok := anAction[0]
-  if !ok {
-    panic("StaticHueAction does not have global color and brightness")
-  }
-  if !colorBrightness.Color.Valid || !colorBrightness.Brightness.Valid {
-    panic("StaticHueAction global color and brightness missing values.")
-  }
+  colorBrightness := anAction[0]
   return colorBrightness.Color.Color, colorBrightness.Brightness.Value
 }
 
