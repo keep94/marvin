@@ -88,16 +88,13 @@ func HueTaskById(store NamedColorsByIdRunner, hueTaskId int) *ops.HueTask {
   return namedColors.AsHueTask()
 }
 
-// DescriptionMap updates the description of an ops.NamedColors
-// read from the database if the id of the ops.NamedColors plus
-// utils.PersistentTaskIdOffset is a key in this map. In this case, the
-// corresponding value is the new description.
-// These instances must be treated as immutable once created.
+// DescriptionMap maps hue task ids to descriptions. These instances must
+// be treated as immutable.
 type DescriptionMap map[int]string
 
-// Filter updates the description of an ops.NamedColors in place.
-// ptr is of type *ops.NamedColors.
-func (f DescriptionMap) Filter(ptr interface{}) error {
+type descriptionMapFilter DescriptionMap
+
+func (f descriptionMapFilter) Filter(ptr interface{}) error {
   p := ptr.(*ops.NamedColors)
   desc, ok := f[int(p.Id) + ops.PersistentTaskIdOffset]
   if ok {
@@ -107,27 +104,27 @@ func (f DescriptionMap) Filter(ptr interface{}) error {
 }
 
 // FixDescriptionByIdRunner returns a new NamedColorsByIdRunner that works
-// just like delegate except that if id + utils.PersistentTaskIdOffset is
-// in descriptionMap, then the Description field in fetched NamedColors
-// instance is replaced by the corresponding value in description map.
+// just like delegate except that for a fetched NamedColors, x,
+// if x.Id + utils.PersistentTaskIdOffset is in descriptionMap, then
+// x.Description is replaced with the corresponding value in descriptionMap.
 func FixDescriptionByIdRunner(
     delegate NamedColorsByIdRunner,
     descriptionMap DescriptionMap) NamedColorsByIdRunner {
   return &fixDescriptionByIdRunner{
       delegate: delegate,
-      filter: descriptionMap}
+      filter: descriptionMapFilter(descriptionMap)}
 }
 
 // FixDescriptionsRunner returns a new NamedColorsRunner that works
-// just like delegate except that if id + utils.PersistentTaskIdOffset is
-// in descriptionMap, then the Description field in fetched NamedColors
-// instance is replaced by the corresponding value in description map.
+// just like delegate except that ifor a fetched NamedColors, x,
+// if x.Id + utils.PersistentTaskIdOffset is in descriptionMap, then
+// x.Description is replaced with the corresponding value in descriptionMap.
 func FixDescriptionsRunner(
     delegate NamedColorsRunner,
     descriptionMap DescriptionMap) NamedColorsRunner {
   return &fixDescriptionRunner{
       delegate: delegate,
-      filter: descriptionMap}
+      filter: descriptionMapFilter(descriptionMap)}
 }
 
 // FutureHueTask creates a HueTask from persistent storage by Id.
