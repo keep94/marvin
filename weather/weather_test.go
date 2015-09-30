@@ -1,7 +1,6 @@
 package weather_test
 
 import (
-  _ "code.google.com/p/go-charset/data"
   "github.com/keep94/marvin/weather"
   "testing"
 )

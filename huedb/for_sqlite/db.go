@@ -3,11 +3,11 @@
 package for_sqlite
 
 import (
-  "code.google.com/p/gosqlite/sqlite"
   "github.com/keep94/appcommon/db"
   "github.com/keep94/appcommon/db/sqlite_db"
   "github.com/keep94/gofunctional3/functional"
   "github.com/keep94/gohue"
+  "github.com/keep94/gosqlite/sqlite"
   "github.com/keep94/marvin/huedb"
   "github.com/keep94/marvin/ops"
   "github.com/keep94/maybe"

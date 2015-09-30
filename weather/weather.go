@@ -2,7 +2,7 @@
 package weather
 
 import (
-  "code.google.com/p/go-charset/charset"
+  "golang.org/x/net/html/charset"
   "encoding/xml"
   "fmt"
   "net/http"
@@ -32,7 +32,7 @@ func Get(station string) (observation *Observation, err error) {
   }
   defer resp.Body.Close()
   decoder := xml.NewDecoder(resp.Body)
-  decoder.CharsetReader = charset.NewReader
+  decoder.CharsetReader = charset.NewReaderLabel
   var result Observation
   if err = decoder.Decode(&result); err != nil {
     return

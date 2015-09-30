@@ -2,12 +2,12 @@ package huedb_test
 
 import (
   "bytes"
-  "code.google.com/p/gosqlite/sqlite"
   "errors"
   "github.com/keep94/appcommon/db"
   "github.com/keep94/appcommon/db/sqlite_db"
   "github.com/keep94/gofunctional3/functional"
   "github.com/keep94/gohue"
+  "github.com/keep94/gosqlite/sqlite"
   "github.com/keep94/marvin/dynamic"
   "github.com/keep94/marvin/huedb"
   "github.com/keep94/marvin/huedb/for_sqlite"
