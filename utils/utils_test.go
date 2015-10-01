@@ -10,6 +10,10 @@ import (
   "time"
 )
 
+const (
+  kMaxActivityWaitTime time.Duration = time.Second
+)
+
 func TestTaskCollection(t *testing.T) {
   doNothing := tasks.TaskFunc(func(e *tasks.Execution) {})
   // Make some Execution instances
@@ -448,8 +452,12 @@ func (b hueTaskBeginner) Begin(h *ops.HueTask, ls lights.Set) {
 
 func (b hueTaskBeginner) Verify(
     t *testing.T, expectedH *ops.HueTask, expectedLs lights.Set) {
-  h := nextActivity(b.Activity, true).(*ops.HueTask)
-  ls := nextActivity(b.Activity, true).(lights.Set)
+  h, hok := nextActivity(b.Activity, kMaxActivityWaitTime).(*ops.HueTask)
+  ls, lsok := nextActivity(b.Activity, kMaxActivityWaitTime).(lights.Set)
+  if !hok || !lsok {
+    t.Errorf("Expected %v started with lights %v.", expectedH, expectedLs)
+    return
+  }
   if !reflect.DeepEqual(expectedH, h) {
     t.Errorf("Expected task %v, got %v", expectedH, h)
   }
@@ -459,8 +467,8 @@ func (b hueTaskBeginner) Verify(
 }
 
 func (b hueTaskBeginner) VerifyNoInteraction(t *testing.T) {
-  h := nextActivity(b.Activity, false)
-  ls := nextActivity(b.Activity, false)
+  h := nextActivity(b.Activity, 0)
+  ls := nextActivity(b.Activity, 0)
   if h != nil || ls != nil {
     t.Error("Expected no interaction.")
   }
@@ -486,15 +494,18 @@ func (s *atTimeTaskStore) Remove(id string) {
 }
 
 func (s *atTimeTaskStore) VerifyNoInteraction(t *testing.T) {
-  if activity := nextActivity(s.Activity, false); activity != nil {
+  if activity := nextActivity(s.Activity, 0); activity != nil {
     t.Errorf("Expected no interaction, got %v", activity)
   }
 }
 
 func (s *atTimeTaskStore) VerifyAdded(
     t *testing.T, expected *ops.AtTimeTask, wait bool) {
-  result := nextActivity(s.Activity, wait)
-  actual, ok := result.(*ops.AtTimeTask)
+  var maxWait time.Duration
+  if wait {
+    maxWait = kMaxActivityWaitTime
+  }
+  actual, ok := nextActivity(s.Activity, maxWait).(*ops.AtTimeTask)
   if !ok {
     t.Errorf("Expected %v added.", expected)
     return
@@ -506,8 +517,11 @@ func (s *atTimeTaskStore) VerifyAdded(
 
 func (s *atTimeTaskStore) VerifyRemoved(
     t *testing.T, expected string, wait bool) {
-  result := nextActivity(s.Activity, wait)
-  actual, ok := result.(string)
+  var maxWait time.Duration
+  if wait {
+    maxWait = kMaxActivityWaitTime
+  }
+  actual, ok := nextActivity(s.Activity, maxWait).(string)
   if !ok {
     t.Errorf("Expected %s removed.", expected)
     return
@@ -544,16 +558,13 @@ func verifyScheduled(
   }
 }
 
-func nextActivity(activity <-chan interface{}, wait bool) interface{} {
-  if wait {
-    return <-activity
-  } else {
-    select {
-      case result := <-activity:
-        return result
-      default:
-        return nil
-    }
+func nextActivity(
+    activity <-chan interface{}, maxWait time.Duration) interface{} {
+  select {
+    case result := <-activity:
+      return result
+    case <-time.After(maxWait):
+      return nil
   }
 }
 
