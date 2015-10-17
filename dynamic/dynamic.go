@@ -360,12 +360,28 @@ func (p ParamSerializer) GetColor(key string) (result gohue.Color, err error) {
 // PlainFactory implements Factory and lets user provide brightness and
 // color and then generates an ops.HueAction that makes lights the user
 // supplied color and brightness.
-// Default is white with full brightness.
+// The zero value uses the color picker that the ColorPicker() function
+// returns with a default color of white along with full brightness.
 type PlainFactory struct {
+  params NamedParamList
+}
+
+// NewPlainFactory creates a PlainFactory that uses the specified
+// color picker. Client uses the Picker function to provide a color picker.
+func NewPlainFactory(colorPicker Param) PlainFactory {
+  return PlainFactory{
+      NamedParamList{
+          {Name: ColorParamName, Param: colorPicker},
+          {Name: BrightnessParamName, Param: Brightness()},
+      },
+  }
 }
 
 func (p PlainFactory) Params() NamedParamList {
-  return kPlainParams
+  if p.params == nil {
+    return kPlainParams
+  }
+  return p.params
 }
 
 func (p PlainFactory) New(values []interface{}) ops.HueAction {
