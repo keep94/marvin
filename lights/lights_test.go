@@ -203,6 +203,19 @@ func TestAdd(t *testing.T) {
   assertStrEqual(t, "All", lights.All.Add(lights.All).String())
   assertStrEqual(t, "None", lights.None.Add(lights.None).String())
 }
+
+func TestMap(t *testing.T) {
+  m := lights.Map{5:6, 6:9}
+  assertIntEqual(t, 6, m.Convert(5))
+  assertIntEqual(t, 9, m.Convert(6))
+  assertIntEqual(t, 4, m.Convert(4))
+}
+
+func assertIntEqual(t *testing.T, expected, actual int) {
+  if expected != actual {
+    t.Errorf("Expected %d, got %d", expected, actual)
+  }
+}
   
 func assertStrEqual(t *testing.T, expected, actual string) {
   if expected != actual {

@@ -209,3 +209,20 @@ func (l Set) String() string {
   return strings.Join(stringSlice, ",")
 }
 
+// Map represents a map of virtual light Ids to physical light ids.
+// When a light fails, its replacement will be given a new id.
+// This data structure allows a light to keep the same virtual id
+// in the marvin system  even after replacing it.
+// The key is the virtual light Id, the value is the physical light id.
+// If there is no mapping for a virtual light id, it maps to itself.
+// Map instances are to be treated as immutable.
+type Map map[int]int
+
+// Convert converts a virtual light Id to a physical light id.
+func (m Map) Convert(virtualId int) int {
+  result, ok := m[virtualId]
+  if !ok {
+    return virtualId
+  }
+  return result
+}
