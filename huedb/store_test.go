@@ -232,12 +232,19 @@ func TestAtTimeTaskStoreEncodeErrors(t *testing.T) {
           HueAction: intAction(131),
       },
   }
-  store.Add(first)
-  if out := len(store.All()); out != 1 {
-    t.Errorf("Expected 1 entries, got %d", out)
+  second := &ops.AtTimeTask{
+      Id: "secondId",
+      H: &ops.HueTask{
+          Id: 32,
+          HueAction: intAction(132),
+      },
   }
-  if len(buffer.Bytes()) > 0 {
-    t.Error("Expected no logs")
+  third := &ops.AtTimeTask{
+      Id: "thirdId",
+      H: &ops.HueTask{
+          Id: 33,
+          HueAction: intAction(133),
+      },
   }
   badDecode := &ops.AtTimeTask{
       Id: "badDecode",
@@ -246,20 +253,45 @@ func TestAtTimeTaskStoreEncodeErrors(t *testing.T) {
           HueAction: intAction(999),
       },
   }
-  store.Add(badDecode)
-  if out := len(fakeStore); out != 2 {
-    t.Errorf("Expected 2 entries in store, got %d", out)
+  badDecode2 := &ops.AtTimeTask{
+      Id: "badDecode2",
+      H: &ops.HueTask{
+          Id: kIdDoesNotSupportDecode,
+          HueAction: intAction(998),
+      },
   }
+  store.Add(first)
+  store.Add(second)
+  store.Add(badDecode)
+  store.Add(badDecode2)
+  store.Add(third)
+
+  // There should be no errors yet.
   if len(buffer.Bytes()) > 0 {
     t.Error("Expected no logs")
   }
-  if out := len(store.All()); out != 1 {
-    t.Errorf("Expected 1 entries, got %d", out)
+
+  // Now there should be 5 entries in the store.
+  if out := fakeStore.Size(); out != 5 {
+    t.Errorf("Expected 5 entries in store, got %d", out)
   }
+
+  // Only 3 of the 5 could be read
+  if out := len(store.All()); out != 3 {
+    t.Errorf("Expected 3 entries, got %d", out)
+  }
+
+  // All should have deleted the two entries that could not be read
+  if out := fakeStore.Size(); out != 3 {
+    t.Errorf("Expected 3 entries in store, got %d", out)
+  }
+
+  // There should be logs explaining the decoding errors
   logLength := len(buffer.Bytes())
   if logLength == 0 {
     t.Error("Expected logs.")
   }
+
   badEncode := &ops.AtTimeTask{
       Id: "badEncode",
       H: &ops.HueTask{
@@ -269,9 +301,14 @@ func TestAtTimeTaskStoreEncodeErrors(t *testing.T) {
   }
   oldLength := logLength
   store.Add(badEncode)
-  if out := len(fakeStore); out != 2 {
-    t.Errorf("Expected 2 entries in store, got %d", out)
+
+  // If Encoding a task causes an error, it shouldn't be added to the
+  // database. size should still be 3.
+  if out := fakeStore.Size(); out != 3 {
+    t.Errorf("Expected 3 entries in store, got %d", out)
   }
+
+  // The encoding error should have been logged.
   logLength = len(buffer.Bytes())
   if logLength <= oldLength {
     t.Error("Expected logs to grow")
@@ -437,6 +474,15 @@ func (f fakeEncodedAtTimeTaskStore) RemoveEncodedAtTimeTaskByScheduleId(
     }
   }
   return nil
+}
+
+func (f fakeEncodedAtTimeTaskStore) Size() (result int) {
+  for i := range f {
+    if f[i].Id != 0 {
+      result++
+    }
+  }
+  return result
 }
 
 func (f fakeEncodedAtTimeTaskStore) EncodedAtTimeTasks(

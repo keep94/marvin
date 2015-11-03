@@ -310,17 +310,21 @@ func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
     s.logger.Println(err)
     return nil
   }
-  var result []*ops.AtTimeTask
-  var placeholder EncodedAtTimeTask
-  consumer = consume.AppendPtrsTo(&result, nil)
-  consumer = functional.MapConsumer(
-      consumer, functional.NewMapper(s.mapper), &placeholder)
-  encodedStream := functional.NewStreamFromPtrs(allEncoded, nil)
-  if err := consumer.Consume(encodedStream); err != nil {
-    s.logger.Println(err)
-    return nil
+  result := make([]*ops.AtTimeTask, len(allEncoded))
+  idx := 0
+  for i := range allEncoded {
+    atask := s.asAtTimeTask(allEncoded[i])
+    if atask == nil {
+      if err := s.store.RemoveEncodedAtTimeTaskByScheduleId(
+          nil, allEncoded[i].ScheduleId); err != nil {
+        s.logger.Println(err)
+      }
+    } else {
+      result[idx] = atask
+      idx++
+    }
   }
-  return result
+  return result[:idx]
 }
 
 // Add adds a new scheduled task
@@ -351,27 +355,28 @@ func (s *AtTimeTaskStore) Remove(scheduleId string) {
   }
 }
 
-func (s *AtTimeTaskStore) mapper(srcPtr, destPtr interface{}) error {
-  encoded := srcPtr.(*EncodedAtTimeTask)
-  dest := destPtr.(*ops.AtTimeTask)
+func (s *AtTimeTaskStore) asAtTimeTask(encoded *EncodedAtTimeTask) *ops.AtTimeTask {
   var err error
-  dest.H = &ops.HueTask{
+  resultH := &ops.HueTask{
       Id: encoded.HueTaskId,
       Description: encoded.Description,
   }
-  dest.H.HueAction, err = s.decoder.Decode(encoded.HueTaskId, encoded.Action)
+  resultH.HueAction, err = s.decoder.Decode(
+      encoded.HueTaskId, encoded.Action)
   if err != nil {
     s.logger.Printf("While decoding hue task %d: %v", encoded.HueTaskId, err)
-    return functional.Skipped
+    return nil
   }
-  dest.Ls, err = lights.InvString(encoded.LightSet)
+  resultLs, err := lights.InvString(encoded.LightSet)
   if err != nil {
     s.logger.Printf("Error parsing light set %s", encoded.LightSet)
-    return functional.Skipped
+    return nil
   }
-  dest.Id = encoded.ScheduleId
-  dest.StartTime = time.Unix(encoded.Time, 0)
-  return nil
+  return &ops.AtTimeTask{
+      Id: encoded.ScheduleId,
+      H: resultH,
+      Ls: resultLs,
+      StartTime: time.Unix(encoded.Time, 0)}
 }
 
 type errAction struct {
