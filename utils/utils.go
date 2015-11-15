@@ -473,9 +473,7 @@ func (s *Stack) loop() {
     <- s.third
     s.Extra.Pause()
     if lightColors != nil {
-      err = tasks.Run(tasks.TaskFunc(func(e *tasks.Execution) {
-        ops.StaticHueAction(lightColors).Do(s.context, s.AllLights, e)
-      }))
+      err = ops.Restore(s.context, lightColors)
       if err != nil {
         s.slog.Printf("ERROR: %v\n", err)
       }

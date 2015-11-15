@@ -119,6 +119,24 @@ func Snapshot(reader LightReader, lightSet lights.Set) (LightColors, error) {
   return result, nil
 }
 
+// Restore restores the lights back to their original state.
+// ctxt is the current context; lightColors are the state of the lights
+// as returned by Snapshot.
+func Restore(ctxt Context, lightColors LightColors) error {
+  for id := range lightColors {
+    // use 400ms fade in
+    if response, err := ctxt.Set(
+        id,
+        colorBrightnessToLightPropertiesWithTransition(
+            lightColors[id], maybe.NewUint16(4))); err != nil {
+      return FixError(id, response, err)
+    }
+  }
+  // Wait 500ms for fade in to take effect
+  time.Sleep(500 * time.Millisecond)
+  return nil
+}
+
 // StaticHueAction represents a HueAction that turns each light on to some
 // some color and brightness.
 // These instances must be treated as immutable.
@@ -280,9 +298,22 @@ func FixError(lightId int, rawResponse []byte, err error) error {
 
 func colorBrightnessToLightProperties(
     cb ColorBrightness) *gohue.LightProperties {
+  var transitionTime maybe.Uint16
+  return colorBrightnessToLightPropertiesWithTransition(
+      cb, transitionTime)
+}
+
+func colorBrightnessToLightPropertiesWithTransition(
+    cb ColorBrightness,
+    transitionTime maybe.Uint16) *gohue.LightProperties {
   if !cb.Color.Valid && !cb.Brightness.Valid {
-    return &gohue.LightProperties{On: maybe.NewBool(false)}
+    return &gohue.LightProperties{
+        On: maybe.NewBool(false),
+        TransitionTime: transitionTime}
   }
   return &gohue.LightProperties{
-      C: cb.Color, Bri: cb.Brightness, On: maybe.NewBool(true)}
+      C: cb.Color,
+      Bri: cb.Brightness,
+      On: maybe.NewBool(true),
+      TransitionTime: transitionTime}
 }
