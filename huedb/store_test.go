@@ -170,7 +170,7 @@ func TestAtTimeTaskStore(t *testing.T) {
   buffer := bytes.NewBuffer(nil)
   logger := log.New(buffer, "", 0)
   store := huedb.NewAtTimeTaskStore(
-      fakeEncoder, fakeEncoder, &fakeStore, logger)
+      fakeEncoder, fakeEncoder, &fakeStore, "default", logger)
   verifyAtTimeTaskStoreNormal(t, store)
   if len(buffer.Bytes()) > 0 {
     t.Errorf("No logs expected: %s", string(buffer.Bytes()))
@@ -179,6 +179,11 @@ func TestAtTimeTaskStore(t *testing.T) {
   if fakeStore[0].Action != "162" {
     t.Errorf("Expected encoded action 162, got %d", fakeStore[0].Action)
   }
+  // AtTimeTaskStores with different group Ids should not interfere with
+  // each other
+  store2 := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, &fakeStore, "second", logger)
+  verifyAtTimeTaskStoreNormal(t, store2)
 }
 
 func TestAtTimeTaskStoreErrors(t *testing.T) {
@@ -189,7 +194,7 @@ func TestAtTimeTaskStoreErrors(t *testing.T) {
   buffer := bytes.NewBuffer(nil)
   logger := log.New(buffer, "", 0)
   store := huedb.NewAtTimeTaskStore(
-      fakeEncoder, fakeEncoder, fakeStore, logger)
+      fakeEncoder, fakeEncoder, fakeStore, "default", logger)
   first := &ops.AtTimeTask{
       Id: "firstId",
       H: &ops.HueTask{
@@ -224,7 +229,7 @@ func TestAtTimeTaskStoreEncodeErrors(t *testing.T) {
   buffer := bytes.NewBuffer(nil)
   logger := log.New(buffer, "", 0)
   store := huedb.NewAtTimeTaskStore(
-      fakeEncoder, fakeEncoder, &fakeStore, logger)
+      fakeEncoder, fakeEncoder, &fakeStore, "default", logger)
   first := &ops.AtTimeTask{
       Id: "firstId",
       H: &ops.HueTask{
@@ -323,8 +328,15 @@ func TestAttimeTaskStoreSqlite(t *testing.T) {
   defer closeDb(t, db)
   dbStore := for_sqlite.New(db)
   store := huedb.NewAtTimeTaskStore(
-      fakeEncoder, fakeEncoder, dbStore, logger)
+      fakeEncoder, fakeEncoder, dbStore, "default", logger)
   verifyAtTimeTaskStoreNormal(t, store)
+
+  // AtTimeTaskStores with different group Ids shouldn't interfere with
+  // each other
+  store2 := huedb.NewAtTimeTaskStore(
+      fakeEncoder, fakeEncoder, dbStore, "second", logger)
+  verifyAtTimeTaskStoreNormal(t, store2)
+
   if len(buffer.Bytes()) > 0 {
     t.Errorf("No logs expected, got: %s", string(buffer.Bytes()))
   }
@@ -444,12 +456,12 @@ func (f fakeEncodedAtTimeTaskStoreWithErrors) AddEncodedAtTimeTask(
 }
 
 func (f fakeEncodedAtTimeTaskStoreWithErrors) RemoveEncodedAtTimeTaskByScheduleId(
-    t db.Transaction, scheduleId string) error {
+    t db.Transaction, groupId, scheduleId string) error {
   return kDbError
 }
 
 func (f fakeEncodedAtTimeTaskStoreWithErrors) EncodedAtTimeTasks(
-    t db.Transaction, consumer functional.Consumer) error {
+    t db.Transaction, groupId string, consumer functional.Consumer) error {
   s := functional.NewStreamFromPtrs(f, nil)
   consumer.Consume(s)
   return kDbError
@@ -466,9 +478,9 @@ func (f *fakeEncodedAtTimeTaskStore) AddEncodedAtTimeTask(
 }
 
 func (f fakeEncodedAtTimeTaskStore) RemoveEncodedAtTimeTaskByScheduleId(
-    t db.Transaction, scheduleId string) error {
+    t db.Transaction, groupId, scheduleId string) error {
   for i := range f {
-    if f[i].ScheduleId == scheduleId {
+    if f[i].ScheduleId == scheduleId && f[i].GroupId == groupId {
       f[i] = kNilEncodedAtTimeTask
       return nil
     }
@@ -486,11 +498,11 @@ func (f fakeEncodedAtTimeTaskStore) Size() (result int) {
 }
 
 func (f fakeEncodedAtTimeTaskStore) EncodedAtTimeTasks(
-    t db.Transaction, consumer functional.Consumer) error {
+    t db.Transaction, groupId string, consumer functional.Consumer) error {
   s := functional.NewStreamFromPtrs(f, nil)
   s = functional.Filter(functional.NewFilterer(func(ptr interface{}) error {
       p := ptr.(*huedb.EncodedAtTimeTask)
-      if p.Id != 0 {
+      if p.Id != 0 && p.GroupId == groupId {
         return nil
       }
       return functional.Skipped

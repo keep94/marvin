@@ -155,6 +155,9 @@ type EncodedAtTimeTask struct {
   // The unique database dependent numeric ID of this scheduled task.
   Id int64
 
+  // The group id.
+  GroupId string
+
   // The string ID of this scheduled task. Database independent.
   ScheduleId string
 
@@ -180,12 +183,14 @@ type EncodedAtTimeTaskStore interface {
   // AddEncodedAtTimeTask adds a task.
   AddEncodedAtTimeTask(t db.Transaction, task *EncodedAtTimeTask) error
 
-  // RemoveEncodedAtTimeTaskByScheduleId removes a task by schedule id.
+  // RemoveEncodedAtTimeTaskByScheduleId removes a task by
+  // group Id and schedule id.
   RemoveEncodedAtTimeTaskByScheduleId(
-      t db.Transaction, scheduleId string) error
+      t db.Transaction, groupId, scheduleId string) error
 
-  // EncodedAtTimeTasks fetches all tasks.
-  EncodedAtTimeTasks(t db.Transaction, consumer functional.Consumer) error
+  // EncodedAtTimeTasks fetches all tasks in a particular group.
+  EncodedAtTimeTasks(
+      t db.Transaction, groupId string, consumer functional.Consumer) error
 }
 
 // ActionEncoder converts a hue action to a string.
@@ -289,6 +294,7 @@ type AtTimeTaskStore struct {
   encoder ActionEncoder
   decoder ActionDecoder
   store EncodedAtTimeTaskStore
+  groupId string
   logger *log.Logger
 }
 
@@ -297,16 +303,21 @@ func NewAtTimeTaskStore(
     encoder ActionEncoder,
     decoder ActionDecoder,
     store EncodedAtTimeTaskStore,
+    groupId string,
     logger *log.Logger) *AtTimeTaskStore {
   return &AtTimeTaskStore{
-      encoder: encoder, decoder: decoder, store: store, logger: logger}
+      encoder: encoder,
+      decoder: decoder,
+      store: store,
+      groupId: groupId,
+      logger: logger}
 }
 
 // All returns all tasks.
 func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
   var allEncoded []*EncodedAtTimeTask
   consumer := consume.AppendPtrsTo(&allEncoded, nil)
-  if err := s.store.EncodedAtTimeTasks(nil, consumer); err != nil {
+  if err := s.store.EncodedAtTimeTasks(nil, s.groupId, consumer); err != nil {
     s.logger.Println(err)
     return nil
   }
@@ -316,7 +327,7 @@ func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
     atask := s.asAtTimeTask(allEncoded[i])
     if atask == nil {
       if err := s.store.RemoveEncodedAtTimeTaskByScheduleId(
-          nil, allEncoded[i].ScheduleId); err != nil {
+          nil, s.groupId, allEncoded[i].ScheduleId); err != nil {
         s.logger.Println(err)
       }
     } else {
@@ -341,6 +352,7 @@ func (s *AtTimeTaskStore) Add(task *ops.AtTimeTask) {
   encoded.Description = task.H.Description
   encoded.LightSet = task.Ls.String()
   encoded.Time = task.StartTime.Unix()
+  encoded.GroupId = s.groupId
   err = s.store.AddEncodedAtTimeTask(nil, &encoded)
   if err != nil {
     s.logger.Println(err)
@@ -349,7 +361,7 @@ func (s *AtTimeTaskStore) Add(task *ops.AtTimeTask) {
 
 // Remove removes a scheduled task by id
 func (s *AtTimeTaskStore) Remove(scheduleId string) {
-  err := s.store.RemoveEncodedAtTimeTaskByScheduleId(nil, scheduleId)
+  err := s.store.RemoveEncodedAtTimeTaskByScheduleId(nil, s.groupId, scheduleId)
   if err != nil {
     s.logger.Println(err)
   }
