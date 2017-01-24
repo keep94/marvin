@@ -22,9 +22,9 @@ const (
   kSQLUpdateNamedColors = "update named_colors set colors = ?, description = ? where id = ?"
   kSQLRemoveNamedColors = "delete from named_colors where id = ?"
 
-  kSQLAddEncodedAtTimeTask = "insert into at_time_tasks (schedule_id, hue_task_id, action, description, light_set, time) values (?, ?, ?, ?, ?, ?)"
-  kSQLEncodedAtTimeTasks = "select id, schedule_id, hue_task_id, action, description, light_set, time from at_time_tasks order by 1"
-  kSQLRemoveEncodedAtTimeTaskByScheduleId = "delete from at_time_tasks where schedule_id = ?"
+  kSQLAddEncodedAtTimeTask = "insert into at_time_tasks (schedule_id, hue_task_id, action, description, light_set, time, group_id) values (?, ?, ?, ?, ?, ?, ?)"
+  kSQLEncodedAtTimeTasks = "select id, schedule_id, hue_task_id, action, description, light_set, time, group_id from at_time_tasks where group_id = ? order by 1"
+  kSQLRemoveEncodedAtTimeTaskByScheduleId = "delete from at_time_tasks where group_id = ? and schedule_id = ?"
   kSQLClearEncodedAtTimeTasks = "delete from at_time_tasks"
 )
 
@@ -94,13 +94,14 @@ func (s Store) RemoveNamedColors(t db.Transaction, id int64) error {
 }
 
 func (s Store) EncodedAtTimeTasks(
-    t db.Transaction, consumer functional.Consumer) error {
+    t db.Transaction, groupId string, consumer functional.Consumer) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
     return sqlite_db.ReadMultiple(
         conn,
         &rawEncodedAtTimeTask{},
         consumer,
-        kSQLEncodedAtTimeTasks)
+        kSQLEncodedAtTimeTasks,
+        groupId)
   })
 }
 
@@ -117,9 +118,10 @@ func (s Store) AddEncodedAtTimeTask(
 }
 
 func (s Store) RemoveEncodedAtTimeTaskByScheduleId(
-    t db.Transaction, scheduleId string) error {
+    t db.Transaction, groupId, scheduleId string) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return conn.Exec(kSQLRemoveEncodedAtTimeTaskByScheduleId, scheduleId)
+    return conn.Exec(
+        kSQLRemoveEncodedAtTimeTaskByScheduleId, groupId, scheduleId)
   })
 }
 
@@ -245,11 +247,11 @@ type rawEncodedAtTimeTask struct {
 }
 
 func (r *rawEncodedAtTimeTask) Ptrs() []interface{} {
-  return []interface{}{&r.Id, &r.ScheduleId, &r.HueTaskId, &r.Action, &r.Description, &r.LightSet, &r.Time}
+  return []interface{}{&r.Id, &r.ScheduleId, &r.HueTaskId, &r.Action, &r.Description, &r.LightSet, &r.Time, &r.GroupId}
 }
 
 func (r *rawEncodedAtTimeTask) Values() []interface{} {
-  return []interface{}{ r.ScheduleId, r.HueTaskId, r.Action, r.Description, r.LightSet, r.Time, r.Id}
+  return []interface{}{ r.ScheduleId, r.HueTaskId, r.Action, r.Description, r.LightSet, r.Time, r.GroupId, r.Id}
 }
 
 func (r *rawEncodedAtTimeTask) Pair(ptr interface{}) {

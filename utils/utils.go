@@ -155,6 +155,7 @@ type MultiExecutor struct {
   me *tasks.MultiExecutor
   c ops.Context
   hlog *log.Logger
+  name string
 }
 
 // NewMultiExecutor creates a new MultiExecutor instance.
@@ -168,6 +169,18 @@ func NewMultiExecutor(c ops.Context, hlog *log.Logger) *MultiExecutor {
       me: tasks.NewMultiExecutor(&TaskCollection{}),
       c: c,
       hlog: hlog,
+  }
+}
+
+// NewNamedMultiExecutor works like NewMultiExecutor except that it creates
+// a named MultiExecutor instance. The name appears in the execution logs.
+func NewNamedMultiExecutor(
+    name string, c ops.Context, hlog *log.Logger) *MultiExecutor {
+  return &MultiExecutor{
+      me: tasks.NewMultiExecutor(&TaskCollection{}),
+      c: c,
+      hlog: hlog,
+      name: name,
   }
 }
 
@@ -236,7 +249,7 @@ func (m *MultiExecutor) Start(
     return nil
   }
   return m.me.Start(
-      &HueTaskWrapper{H: h, Ls: usedLights, c: m.c, log: m.hlog})
+      &HueTaskWrapper{H: h, Ls: usedLights, c: m.c, log: m.hlog, name: m.name})
 }
 
 // Begin is a synonym for Start. Needed to implement HueTaskBeginner.
@@ -587,6 +600,9 @@ type HueTaskWrapper struct {
 
   // The log
   log *log.Logger
+
+  // Name of enclosing MultiExecutor
+  name string
 }
 
 // Do performs the task
@@ -619,7 +635,7 @@ func (t *HueTaskWrapper) TaskId() string {
 }
 
 func (t *HueTaskWrapper) String() string {
-  return fmt.Sprintf("{%d, %s, %s}", t.H.Id, t.H.Description, t.Ls)
+  return fmt.Sprintf("{%s, %d, %s, %s}", t.name, t.H.Id, t.H.Description, t.Ls)
 }
 
 // TimerTaskWrapper represents a hue task bound to a light set to start at
