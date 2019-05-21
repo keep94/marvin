@@ -209,15 +209,15 @@ func (m *MultiExecutor) MaybeStart(
 
   // Calculate lightsInUse. If a running task uses all
   // lights give up don't run this task.
-  lightsInUse := make(lights.Set)
+  var lightsInUse lights.Builder
   for _, hueTaskWrapper := range runningTasks {
     if hueTaskWrapper.Ls.IsAll() {
       return nil
     }
-    lightsInUse.MutableAdd(hueTaskWrapper.Ls)
+    lightsInUse.Add(hueTaskWrapper.Ls)
   }
 
-  neededAndAvailableLights := neededLights.Subtract(lightsInUse)
+  neededAndAvailableLights := neededLights.Subtract(lightsInUse.Build())
 
   // Oops no available lights that we need. Return without running task
   if neededAndAvailableLights.IsNone() {

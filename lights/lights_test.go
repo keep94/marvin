@@ -182,13 +182,31 @@ func TestIntersect(t *testing.T) {
       lights.All.Intersect(lights.All).String())
 }
 
-func TestMutableAdd(t *testing.T) {
-  ls := make(lights.Set)
-  ls.MutableAdd(lights.New(1, 2)).MutableAdd(lights.New(3, 4))
-  ls.MutableAdd(lights.New(1, 4, 5))
-  ls.MutableAdd(lights.New(2, 3))
-  ls.MutableAdd(lights.Set{6: false})
-  assertStrEqual(t, "1,2,3,4,5", ls.String())
+func TestBuilder(t *testing.T) {
+  var builder lights.Builder
+  builder.AddOne(1).AddOne(3)
+  lights_13 := builder.Build()
+  builder.Add(lights.New(7, 9)).Add(lights.New(3, 5))
+  lights_13579 := builder.Build()
+  assertStrEqual(t, "1,3", lights_13.String())
+  assertStrEqual(t, "1,3,5,7,9", lights_13579.String())
+}
+
+func TestEmpyBuilder(t *testing.T) {
+  var builder lights.Builder
+  empty := builder.Build()
+  two := builder.AddOne(2).Build()
+  five := builder.Clear().AddOne(5).Build()
+  assertStrEqual(t, "None", empty.String())
+  assertStrEqual(t, "2", two.String())
+  assertStrEqual(t, "5", five.String())
+}
+
+func TestInitializedBuilder(t *testing.T) {
+  origLights := lights.New(1, 2, 4)
+  newLights := lights.NewBuilder(origLights).AddOne(5).Build()
+  assertStrEqual(t, "1,2,4", origLights.String())
+  assertStrEqual(t, "1,2,4,5", newLights.String())
 }
 
 func TestAdd(t *testing.T) {

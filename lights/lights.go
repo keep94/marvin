@@ -18,8 +18,7 @@ var (
 
 // Set represents a set of positive light Ids. nil represents all lights;
 // An empty map or a map containing only false values represents no lights.
-// Callers should treat Set instances as immutable unless the caller is
-// building the Set for the first time by hand or with MutableAdd method.
+// Callers should treat Set instances as immutable.
 type Set map[int]bool
 
 // New builds a new Set.
@@ -168,27 +167,13 @@ func (l Set) IsNone() bool {
   return true
 }
 
-// MutableAdd changes this instance by adding the light ids in other and
-// then returns this instance. MutableAdd panics if other is all lights
-func (l Set) MutableAdd(other Set) Set {
-  if other == nil {
-    panic("MutableAdd cannot take All lights as parameter.")
-  }
-  for i := range other {
-    if other[i] {
-      l[i] = true
-    }
-  }
-  return l
-}
-
 // Add returns the union of this instance and other.
 func (l Set) Add(other Set) Set {
   if l == nil || other == nil {
     return nil
   }
   result := make(Set, len(l) + len(other))
-  return result.MutableAdd(l).MutableAdd(other)
+  return result.mutableAdd(l).mutableAdd(other)
 }
 
 // String returns the lights comma separated in ascending order or
@@ -207,6 +192,73 @@ func (l Set) String() string {
     stringSlice[i] = strconv.Itoa(intSlice[i])
   }
   return strings.Join(stringSlice, ",")
+}
+
+func (l Set) mutableAdd(other Set) Set {
+  if other == nil {
+    panic("MutableAdd cannot take All lights as parameter.")
+  }
+  for i := range other {
+    if other[i] {
+      l[i] = true
+    }
+  }
+  return l
+}
+
+// Builder builds Set instances. The zero value is an empty Builder
+// ready for use.
+type Builder struct {
+  set Set
+  readOnly bool
+}
+
+// NewBuilder returns a new instance with other as its initial contents.
+func NewBuilder(other Set) *Builder {
+  return &Builder{set: other, readOnly: true}
+}
+
+// Clear changes this instance to contain no lights.
+func (b *Builder) Clear() *Builder {
+  b.set = make(Set)
+  b.readOnly = false
+  return b
+}
+
+// AddOne adds one light to this instance.
+func (b *Builder) AddOne(light int) *Builder {
+  b.makeWritable()
+  b.set[light] = true
+  return b
+}
+
+// Add adds the lights in other to this instance.
+func (b *Builder) Add(other Set) *Builder {
+  b.makeWritable()
+  b.set.mutableAdd(other)
+  return b
+}
+
+// Build returns the lights in this instance as a Set.
+func (b *Builder) Build() Set {
+  b.lazyInit()
+  b.readOnly = true
+  return b.set
+}
+
+func (b *Builder) lazyInit() {
+  if b.set == nil {
+    b.Clear()
+  }
+}
+
+func (b *Builder) makeWritable() {
+  b.lazyInit()
+  if b.readOnly {
+    writableSet := make(Set, len(b.set))
+    b.set = writableSet.mutableAdd(b.set)
+    b.readOnly = false
+  }
 }
 
 // Map represents a map of virtual light Ids to physical light ids.
