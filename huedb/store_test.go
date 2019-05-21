@@ -177,7 +177,7 @@ func TestAtTimeTaskStore(t *testing.T) {
   }
   // Just to be sure encoding of action works.
   if fakeStore[0].Action != "162" {
-    t.Errorf("Expected encoded action 162, got %d", fakeStore[0].Action)
+    t.Errorf("Expected encoded action 162, got %s", fakeStore[0].Action)
   }
   // AtTimeTaskStores with different group Ids should not interfere with
   // each other
