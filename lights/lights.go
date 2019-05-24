@@ -211,31 +211,41 @@ func (l Set) mutableAdd(other Set) Set {
 type Builder struct {
   set Set
   readOnly bool
+  initialized bool
 }
 
 // NewBuilder returns a new instance with other as its initial contents.
 func NewBuilder(other Set) *Builder {
-  return &Builder{set: other, readOnly: true}
+  return &Builder{set: other, readOnly: true, initialized: true}
 }
 
 // Clear changes this instance to contain no lights.
 func (b *Builder) Clear() *Builder {
   b.set = make(Set)
   b.readOnly = false
+  b.initialized = true
   return b
 }
 
 // AddOne adds one light to this instance.
 func (b *Builder) AddOne(light int) *Builder {
   b.makeWritable()
-  b.set[light] = true
+  if b.set != nil {
+    b.set[light] = true
+  }
   return b
 }
 
 // Add adds the lights in other to this instance.
 func (b *Builder) Add(other Set) *Builder {
   b.makeWritable()
-  b.set.mutableAdd(other)
+  if b.set != nil {
+    if other != nil {
+      b.set.mutableAdd(other)
+    } else {
+      b.set = nil
+    }
+  }
   return b
 }
 
@@ -247,7 +257,7 @@ func (b *Builder) Build() Set {
 }
 
 func (b *Builder) lazyInit() {
-  if b.set == nil {
+  if !b.initialized {
     b.Clear()
   }
 }
@@ -255,8 +265,10 @@ func (b *Builder) lazyInit() {
 func (b *Builder) makeWritable() {
   b.lazyInit()
   if b.readOnly {
-    writableSet := make(Set, len(b.set))
-    b.set = writableSet.mutableAdd(b.set)
+    if b.set != nil {
+      writableSet := make(Set, len(b.set))
+      b.set = writableSet.mutableAdd(b.set)
+    }
     b.readOnly = false
   }
 }

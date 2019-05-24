@@ -209,6 +209,14 @@ func TestInitializedBuilder(t *testing.T) {
   assertStrEqual(t, "1,2,4,5", newLights.String())
 }
 
+func TestBuilderWithNil(t *testing.T) {
+  var builder lights.Builder
+  all := builder.AddOne(5).Add(nil).Add(lights.New(3)).AddOne(2).Build()
+  allAgain := lights.NewBuilder(nil).AddOne(7).Build()
+  assertStrEqual(t, "All", all.String())
+  assertStrEqual(t, "All", allAgain.String())
+}
+
 func TestAdd(t *testing.T) {
   newls := lights.None.Add(
       lights.New(1, 2)).Add(lights.New(2, 3)).Add(lights.New(1, 3))
