@@ -5,7 +5,7 @@ import (
   "errors"
   "github.com/keep94/appcommon/db"
   "github.com/keep94/appcommon/db/sqlite_db"
-  "github.com/keep94/gofunctional3/functional"
+  "github.com/keep94/goconsume"
   "github.com/keep94/gohue"
   "github.com/keep94/gosqlite/sqlite"
   "github.com/keep94/marvin/dynamic"
@@ -431,8 +431,14 @@ func verifyAtTimeTaskStoreNormal(t *testing.T, store *huedb.AtTimeTaskStore) {
 type fakeNamedColorsRunner []*ops.NamedColors
 
 func (f fakeNamedColorsRunner) NamedColors(
-    t db.Transaction, consumer functional.Consumer) error {
-  return consumer.Consume(functional.NewStreamFromPtrs(f, nil))
+    t db.Transaction, consumer goconsume.Consumer) error {
+  for i := range f {
+    if !consumer.CanConsume() {
+      break
+    }
+    consumer.Consume(f[i])
+  }
+  return nil
 }
 
 type fakeNamedColorsByIdRunner struct {
@@ -461,9 +467,13 @@ func (f fakeEncodedAtTimeTaskStoreWithErrors) RemoveEncodedAtTimeTaskByScheduleI
 }
 
 func (f fakeEncodedAtTimeTaskStoreWithErrors) EncodedAtTimeTasks(
-    t db.Transaction, groupId string, consumer functional.Consumer) error {
-  s := functional.NewStreamFromPtrs(f, nil)
-  consumer.Consume(s)
+    t db.Transaction, groupId string, consumer goconsume.Consumer) error {
+  for i := range f {
+    if !consumer.CanConsume() {
+      break
+    }
+    consumer.Consume(f[i])
+  }
   return kDbError
 }
 
@@ -498,17 +508,17 @@ func (f fakeEncodedAtTimeTaskStore) Size() (result int) {
 }
 
 func (f fakeEncodedAtTimeTaskStore) EncodedAtTimeTasks(
-    t db.Transaction, groupId string, consumer functional.Consumer) error {
-  s := functional.NewStreamFromPtrs(f, nil)
-  s = functional.Filter(functional.NewFilterer(func(ptr interface{}) error {
-      p := ptr.(*huedb.EncodedAtTimeTask)
-      if p.Id != 0 && p.GroupId == groupId {
-        return nil
-      }
-      return functional.Skipped
-  }),
-  s)
-  return consumer.Consume(s)
+    t db.Transaction, groupId string, consumer goconsume.Consumer) error {
+  for i := range f {
+    if !consumer.CanConsume() {
+      break
+    }
+    if f[i].Id == 0 || f[i].GroupId != groupId {
+      continue
+    }
+    consumer.Consume(f[i])
+  }
+  return nil
 }
 
 type fakeActionEncoder struct {

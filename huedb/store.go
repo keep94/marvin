@@ -5,8 +5,7 @@ import (
   "errors"
   "fmt"
   "github.com/keep94/appcommon/db"
-  "github.com/keep94/gofunctional3/consume"
-  "github.com/keep94/gofunctional3/functional"
+  "github.com/keep94/goconsume"
   "github.com/keep94/marvin/dynamic"
   "github.com/keep94/marvin/lights"
   "github.com/keep94/marvin/ops"
@@ -22,16 +21,6 @@ var (
   ErrBadLightColors = errors.New("huedb: Bad values in LightColors.")
 )
 
-var (
-  kNamedColorsToHueTask = functional.NewMapper(
-      func(srcPtr, destPtr interface{}) error {
-        s, d := srcPtr.(*ops.NamedColors), destPtr.(**ops.HueTask)
-        *d = s.AsHueTask()
-        return nil
-      },
-  )
-)
-
 type NamedColorsByIdRunner interface {
   // NamedColorsById gets named colors by id.
   NamedColorsById(t db.Transaction, id int64, colors *ops.NamedColors) error
@@ -39,7 +28,7 @@ type NamedColorsByIdRunner interface {
 
 type NamedColorsRunner interface {
   // NamedColors gets all named colors.
-  NamedColors(t db.Transaction, consumer functional.Consumer) error
+  NamedColors(t db.Transaction, consumer goconsume.Consumer) error
 }
 
 type AddNamedColorsRunner interface {
@@ -60,10 +49,8 @@ type RemoveNamedColorsRunner interface {
 // HueTasks returns all the named colors as hue tasks.
 func HueTasks(store NamedColorsRunner) (ops.HueTaskList, error) {
   var tasks ops.HueTaskList
-  consumer := functional.MapConsumer(
-      consume.AppendTo(&tasks),
-      kNamedColorsToHueTask,
-      new(ops.NamedColors))
+  consumer := goconsume.AppendTo(&tasks)
+  consumer = &namedColorsToHueTaskConsumer{Consumer: consumer}
   if err := store.NamedColors(nil, consumer); err != nil {
     return nil, err
   }
@@ -94,13 +81,13 @@ type DescriptionMap map[int]string
 
 type descriptionMapFilter DescriptionMap
 
-func (f descriptionMapFilter) Filter(ptr interface{}) error {
+func (f descriptionMapFilter) Filter(ptr interface{}) bool {
   p := ptr.(*ops.NamedColors)
   desc, ok := f[int(p.Id) + ops.PersistentTaskIdOffset]
   if ok {
     p.Description = desc
   }
-  return nil
+  return true
 }
 
 // FixDescriptionByIdRunner returns a new NamedColorsByIdRunner that works
@@ -190,7 +177,7 @@ type EncodedAtTimeTaskStore interface {
 
   // EncodedAtTimeTasks fetches all tasks in a particular group.
   EncodedAtTimeTasks(
-      t db.Transaction, groupId string, consumer functional.Consumer) error
+      t db.Transaction, groupId string, consumer goconsume.Consumer) error
 }
 
 // ActionEncoder converts a hue action to a string.
@@ -316,7 +303,7 @@ func NewAtTimeTaskStore(
 // All returns all tasks.
 func (s *AtTimeTaskStore) All() []*ops.AtTimeTask {
   var allEncoded []*EncodedAtTimeTask
-  consumer := consume.AppendPtrsTo(&allEncoded, nil)
+  consumer := goconsume.AppendPtrsTo(&allEncoded)
   if err := s.store.EncodedAtTimeTasks(nil, s.groupId, consumer); err != nil {
     s.logger.Println(err)
     return nil
@@ -407,18 +394,19 @@ func (a errAction) UsedLights(
 
 type fixDescriptionRunner struct {
   delegate NamedColorsRunner
-  filter functional.Filterer
+  filter descriptionMapFilter
 }
 
 func (r *fixDescriptionRunner) NamedColors(
-    t db.Transaction, consumer functional.Consumer) error {
-  return r.delegate.NamedColors(
-      t, functional.FilterConsumer(consumer, r.filter))
+    t db.Transaction, consumer goconsume.Consumer) error {
+  consumer = goconsume.ModFilter(
+      consumer, r.filter.Filter, (*ops.NamedColors)(nil))
+  return r.delegate.NamedColors(t, consumer)
 }
 
 type fixDescriptionByIdRunner struct {
   delegate NamedColorsByIdRunner
-  filter functional.Filterer
+  filter descriptionMapFilter
 }
 
 func (r *fixDescriptionByIdRunner) NamedColorsById(
@@ -430,4 +418,14 @@ func (r *fixDescriptionByIdRunner) NamedColorsById(
   return nil
 }
 
+type namedColorsToHueTaskConsumer struct {
+  goconsume.Consumer
+  hueTask *ops.HueTask
+}
 
+func (n *namedColorsToHueTaskConsumer) Consume(ptr interface{}) {
+  goconsume.MustCanConsume(n)
+  p := ptr.(*ops.NamedColors)
+  n.hueTask = p.AsHueTask()
+  n.Consumer.Consume(&n.hueTask)
+}

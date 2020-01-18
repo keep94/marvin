@@ -3,7 +3,7 @@
 package fixture
 
 import (
-  "github.com/keep94/gofunctional3/consume"
+  "github.com/keep94/goconsume"
   "github.com/keep94/gohue"
   "github.com/keep94/marvin/huedb"
   "github.com/keep94/marvin/ops"
@@ -66,11 +66,10 @@ func NamedColorsById(t *testing.T, store MinimalStore) {
 func NamedColors(t *testing.T, store NamedColorsStore) {
   var first, second ops.NamedColors
   createNamedColors(t, store, &first, &second)
-  consumer := consume.NewBuffer(make([]ops.NamedColors, 5))
-  if err := store.NamedColors(nil, consumer); err != nil {
+  var results []ops.NamedColors
+  if err := store.NamedColors(nil, goconsume.AppendTo(&results)); err != nil {
     t.Errorf("Got error reading database: %v", err)
   }
-  results := consumer.Values().([]ops.NamedColors)
   if out := len(results); out != 2 {
     t.Fatalf("Expected array of size 2, got %d", out)
   }

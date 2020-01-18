@@ -5,7 +5,8 @@ package for_sqlite
 import (
   "github.com/keep94/appcommon/db"
   "github.com/keep94/appcommon/db/sqlite_db"
-  "github.com/keep94/gofunctional3/functional"
+  "github.com/keep94/appcommon/db/sqlite_rw"
+  "github.com/keep94/goconsume"
   "github.com/keep94/gohue"
   "github.com/keep94/gosqlite/sqlite"
   "github.com/keep94/marvin/huedb"
@@ -43,22 +44,21 @@ func ConnNew(conn *sqlite.Conn) Store {
 func (s Store) NamedColorsById(
     t db.Transaction, id int64, namedColors *ops.NamedColors) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.ReadSingle(
+    return sqlite_rw.ReadSingle(
         conn,
-        &rawNamedColors{},
+        (&rawNamedColors{}).init(namedColors),
         huedb.ErrNoSuchId,
-        namedColors,
         kSQLNamedColorsById,
         id)
   })
 }
 
 func (s Store) NamedColors(
-    t db.Transaction, consumer functional.Consumer) error {
+    t db.Transaction, consumer goconsume.Consumer) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.ReadMultiple(
+    return sqlite_rw.ReadMultiple(
         conn,
-        &rawNamedColors{},
+        (&rawNamedColors{}).init(&ops.NamedColors{}),
         consumer,
         kSQLNamedColors)
   })
@@ -67,10 +67,9 @@ func (s Store) NamedColors(
 func (s Store) AddNamedColors(
     t db.Transaction, namedColors *ops.NamedColors) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.AddRow(
+    return sqlite_rw.AddRow(
         conn,
-        &rawNamedColors{},
-        namedColors,
+        (&rawNamedColors{}).init(namedColors),
         &namedColors.Id,
         kSQLAddNamedColors)
   })
@@ -79,10 +78,9 @@ func (s Store) AddNamedColors(
 func (s Store) UpdateNamedColors(
     t db.Transaction, namedColors *ops.NamedColors) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.UpdateRow(
+    return sqlite_rw.UpdateRow(
         conn,
-        &rawNamedColors{},
-        namedColors,
+        (&rawNamedColors{}).init(namedColors),
         kSQLUpdateNamedColors)
   })
 }
@@ -94,11 +92,11 @@ func (s Store) RemoveNamedColors(t db.Transaction, id int64) error {
 }
 
 func (s Store) EncodedAtTimeTasks(
-    t db.Transaction, groupId string, consumer functional.Consumer) error {
+    t db.Transaction, groupId string, consumer goconsume.Consumer) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.ReadMultiple(
+    return sqlite_rw.ReadMultiple(
         conn,
-        &rawEncodedAtTimeTask{},
+        (&rawEncodedAtTimeTask{}).init(&huedb.EncodedAtTimeTask{}),
         consumer,
         kSQLEncodedAtTimeTasks,
         groupId)
@@ -108,10 +106,9 @@ func (s Store) EncodedAtTimeTasks(
 func (s Store) AddEncodedAtTimeTask(
     t db.Transaction, task *huedb.EncodedAtTimeTask) error {
   return sqlite_db.ToDoer(s.db, t).Do(func(conn *sqlite.Conn) error {
-    return sqlite_db.AddRow(
+    return sqlite_rw.AddRow(
         conn,
-        &rawEncodedAtTimeTask{},
-        task,
+        (&rawEncodedAtTimeTask{}).init(task),
         &task.Id,
         kSQLAddEncodedAtTimeTask)
   })
@@ -136,16 +133,21 @@ type rawNamedColors struct {
   colors string
 }
 
+func (r *rawNamedColors) init(bo *ops.NamedColors) *rawNamedColors {
+  r.NamedColors = bo
+  return r
+}
+
+func (r *rawNamedColors) ValuePtr() interface{} {
+  return r.NamedColors
+}
+
 func (r *rawNamedColors) Ptrs() []interface{} {
   return []interface{}{&r.Id, &r.colors, &r.Description}
 }
 
 func (r *rawNamedColors) Values() []interface{} {
   return []interface{}{r.colors, r.Description, r.Id}
-}
-
-func (r *rawNamedColors) Pair(ptr interface{}) {
-  r.NamedColors = ptr.(*ops.NamedColors)
 }
 
 func (r *rawNamedColors) Unmarshall() error {
@@ -243,7 +245,17 @@ func (r *rawNamedColors) Marshall() error {
 
 type rawEncodedAtTimeTask struct {
   *huedb.EncodedAtTimeTask
-  sqlite_db.SimpleRow
+  sqlite_rw.SimpleRow
+}
+
+func (r *rawEncodedAtTimeTask) init(
+    bo *huedb.EncodedAtTimeTask) *rawEncodedAtTimeTask {
+  r.EncodedAtTimeTask = bo
+  return r
+}
+
+func (r *rawEncodedAtTimeTask) ValuePtr() interface{} {
+  return r.EncodedAtTimeTask
 }
 
 func (r *rawEncodedAtTimeTask) Ptrs() []interface{} {
@@ -253,8 +265,3 @@ func (r *rawEncodedAtTimeTask) Ptrs() []interface{} {
 func (r *rawEncodedAtTimeTask) Values() []interface{} {
   return []interface{}{ r.ScheduleId, r.HueTaskId, r.Action, r.Description, r.LightSet, r.Time, r.GroupId, r.Id}
 }
-
-func (r *rawEncodedAtTimeTask) Pair(ptr interface{}) {
-  r.EncodedAtTimeTask = ptr.(*huedb.EncodedAtTimeTask)
-}
-
