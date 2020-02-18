@@ -436,7 +436,8 @@ func (f fakeNamedColorsRunner) NamedColors(
     if !consumer.CanConsume() {
       break
     }
-    consumer.Consume(f[i])
+    namedColors := *f[i]
+    consumer.Consume(&namedColors)
   }
   return nil
 }
@@ -472,7 +473,8 @@ func (f fakeEncodedAtTimeTaskStoreWithErrors) EncodedAtTimeTasks(
     if !consumer.CanConsume() {
       break
     }
-    consumer.Consume(f[i])
+    encodedAtTimeTask := *f[i]
+    consumer.Consume(&encodedAtTimeTask)
   }
   return kDbError
 }
@@ -516,7 +518,8 @@ func (f fakeEncodedAtTimeTaskStore) EncodedAtTimeTasks(
     if f[i].Id == 0 || f[i].GroupId != groupId {
       continue
     }
-    consumer.Consume(f[i])
+    encodedAtTimeTask := *f[i]
+    consumer.Consume(&encodedAtTimeTask)
   }
   return nil
 }

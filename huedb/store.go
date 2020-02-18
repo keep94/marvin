@@ -399,8 +399,7 @@ type fixDescriptionRunner struct {
 
 func (r *fixDescriptionRunner) NamedColors(
     t db.Transaction, consumer goconsume.Consumer) error {
-  consumer = goconsume.ModFilter(
-      consumer, r.filter.Filter, (*ops.NamedColors)(nil))
+  consumer = goconsume.Filter(consumer, r.filter.Filter)
   return r.delegate.NamedColors(t, consumer)
 }
 
