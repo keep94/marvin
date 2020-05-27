@@ -2,8 +2,12 @@
 package weather
 
 import (
+  "github.com/keep94/appcommon/http_util"
   "golang.org/x/net/html/charset"
+
+  "encoding/json"
   "encoding/xml"
+  "errors"
   "fmt"
   "net/http"
   "net/url"
@@ -38,6 +42,50 @@ func Get(station string) (observation *Observation, err error) {
     return
   }
   return &result, nil
+}
+
+// OpenWeatherConn represents a connection to the open weather servers
+type OpenWeatherConn struct {
+  url *url.URL
+}
+
+// NewOpenWeatherConn returns a new, long lived, open weather connection.
+func NewOpenWeatherConn(apiKey string) *OpenWeatherConn {
+  return &OpenWeatherConn{url: getOpenWeatherUrl(apiKey)}
+}
+
+// Get returns the weather for a particular city. The city ID for a city
+// can be found by downloading city.list.json.gz from
+// http://bulk.openweathermap.org/sample/. For example, Mountain View, CA
+// is "5375480"
+func (c *OpenWeatherConn) Get(cityId string) (
+    observation *Observation, err error) {
+  request := &http.Request{
+      Method: "GET",
+      URL: http_util.AppendParams(c.url, "id", cityId)}
+  var client http.Client
+  var resp *http.Response
+  if resp, err = client.Do(request); err != nil {
+    return
+  }
+  defer resp.Body.Close()
+  decoder := json.NewDecoder(resp.Body)
+  var result openWeatherObservation
+  if err = decoder.Decode(&result); err != nil {
+    return
+  }
+  if len(result.Weather) == 0 {
+    err = errors.New("weather:Missing weather section in open weather response")
+    return
+  }
+  if result.Main == nil {
+    err = errors.New("weather:Missing main section in open weather response")
+    return
+  }
+  return &Observation{
+      Temperature: result.Main.Temp - 273.15,
+      Weather: result.Weather[0].Description,
+  }, nil
 }
 
 // Cache stores a single weather observation and notifies clients when
@@ -88,5 +136,26 @@ func getUrl(station string) *url.URL {
       Scheme: "http",
       Host: "w1.weather.gov",
       Path: fmt.Sprintf("/xml/current_obs/%s.xml", station)}
+}
+
+func getOpenWeatherUrl(apiKey string) *url.URL {
+  base := &url.URL{
+      Scheme: "http",
+      Host: "api.openweathermap.org",
+      Path: "/data/2.5/weather"}
+  return http_util.AppendParams(base, "appid", apiKey)
+}
+
+type openWeatherObservation struct {
+  Weather []openWeatherWeather `json:"weather"`
+  Main *openWeatherMain `json:"main"`
+}
+
+type openWeatherWeather struct {
+  Description string `json:"description"`
+}
+
+type openWeatherMain struct {
+  Temp float64 `json:"temp"`
 }
 
