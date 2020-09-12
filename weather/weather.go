@@ -46,7 +46,8 @@ func Get(station string) (observation *Observation, err error) {
 
 // OpenWeatherConn represents a connection to the open weather servers
 type OpenWeatherConn struct {
-	url *url.URL
+	client http.Client
+	url    *url.URL
 }
 
 // NewOpenWeatherConn returns a new, long lived, open weather connection.
@@ -63,9 +64,8 @@ func (c *OpenWeatherConn) Get(cityId string) (
 	request := &http.Request{
 		Method: "GET",
 		URL:    http_util.AppendParams(c.url, "id", cityId)}
-	var client http.Client
 	var resp *http.Response
-	if resp, err = client.Do(request); err != nil {
+	if resp, err = c.client.Do(request); err != nil {
 		return
 	}
 	defer resp.Body.Close()
