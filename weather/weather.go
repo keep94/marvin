@@ -2,16 +2,18 @@
 package weather
 
 import (
-	"github.com/keep94/appcommon/http_util"
-	"golang.org/x/net/html/charset"
-
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"sync"
+
+	"github.com/keep94/appcommon/http_util"
+	"golang.org/x/net/html/charset"
 )
 
 // Observation represents a weather observation.
@@ -88,6 +90,42 @@ func (c *OpenWeatherConn) Get(cityId string) (
 	}, nil
 }
 
+// PurpleAirConn represents a connection to purple air
+type PurpleAirConn struct {
+	client http.Client
+	url    *url.URL
+}
+
+var kPurpleAirConn = &PurpleAirConn{url: getPurpleAirUrl()}
+
+// NewPurpleAirConn returns a new, long lived, purple air connection.
+func NewPurpleAirConn() *PurpleAirConn {
+	return kPurpleAirConn
+}
+
+// GetAQI returns the AQI for a particular purple air station.
+func (p *PurpleAirConn) GetAQI(stationId int64) (aqi int, err error) {
+	request := &http.Request{
+		Method: "GET",
+		URL: http_util.AppendParams(
+			p.url, "show", strconv.FormatInt(stationId, 10))}
+	var resp *http.Response
+	if resp, err = p.client.Do(request); err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	decoder := json.NewDecoder(resp.Body)
+	var result purpleAirResponse
+	if err = decoder.Decode(&result); err != nil {
+		return
+	}
+	pm2_5, err := result.AveragePM2_5()
+	if err != nil {
+		return
+	}
+	return computeAQI(pm2_5), nil
+}
+
 // Cache stores a single weather observation and notifies clients when
 // this observation changes. Cache instances can be safely used with
 // multiple goroutines.
@@ -138,6 +176,13 @@ func getUrl(station string) *url.URL {
 		Path:   fmt.Sprintf("/xml/current_obs/%s.xml", station)}
 }
 
+func getPurpleAirUrl() *url.URL {
+	return &url.URL{
+		Scheme: "http",
+		Host:   "www.purpleair.com",
+		Path:   "/json"}
+}
+
 func getOpenWeatherUrl(apiKey string) *url.URL {
 	base := &url.URL{
 		Scheme: "http",
@@ -157,4 +202,80 @@ type openWeatherWeather struct {
 
 type openWeatherMain struct {
 	Temp float64 `json:"temp"`
+}
+
+type purpleAirResponse struct {
+	Results []purpleAirStation `json:"results"`
+}
+
+func (p *purpleAirResponse) AveragePM2_5() (float64, error) {
+	sum := 0.0
+	count := 0
+	for i := range p.Results {
+		pm2_5, err := strconv.ParseFloat(p.Results[i].PM2_5, 64)
+		if err != nil {
+			continue
+		}
+		sum += pm2_5
+		count++
+	}
+	if count == 0 {
+		return 0.0, errors.New("No sensor readings found.")
+	}
+	return sum / float64(count), nil
+}
+
+type purpleAirStation struct {
+	ID    int
+	PM2_5 string `json:"PM2_5Value"`
+}
+
+type aqiEntry struct {
+	AQI float64
+	Raw float64
+}
+
+type aqiScale []aqiEntry
+
+var kAqiScale = aqiScale{
+	{0.0, 0.0},
+	{50.0, 12.0},
+	{51.0, 12.1},
+	{100.0, 35.4},
+	{101.0, 35.5},
+	{150.0, 55.4},
+	{151.0, 55.5},
+	{200.0, 150.4},
+	{201.0, 150.5},
+	{300.0, 250.4},
+	{301.0, 250.5},
+	{400.0, 350.4},
+	{401.0, 350.5},
+	{500.0, 500.4},
+}
+
+func (s aqiScale) GetAQI(raw float64) int {
+	idx := s.search(raw)
+	if idx == len(s) {
+		return round(s[idx-1].AQI)
+	}
+	if idx == 0 {
+		return round(s[0].AQI)
+	}
+	ratio := (raw - s[idx-1].Raw) / (s[idx].Raw - s[idx-1].Raw)
+	return round(s[idx-1].AQI + ratio*(s[idx].AQI-s[idx-1].AQI))
+}
+
+func (s aqiScale) search(x float64) int {
+	return sort.Search(len(s), func(i int) bool {
+		return s[i].Raw >= x
+	})
+}
+
+func computeAQI(raw float64) int {
+	return kAqiScale.GetAQI(raw)
+}
+
+func round(x float64) int {
+	return int(x + 0.5)
 }

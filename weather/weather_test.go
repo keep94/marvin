@@ -1,20 +1,10 @@
 package weather_test
 
 import (
-	"github.com/keep94/marvin/weather"
 	"testing"
-)
 
-func TestGet(t *testing.T) {
-	_, err := weather.Get("AAAA")
-	if err == nil {
-		t.Error("Expected non-nil error.")
-	}
-	_, err = weather.Get("KNUQ")
-	if err != nil {
-		t.Fatalf("Expected nil error, got %v", err)
-	}
-}
+	"github.com/keep94/marvin/weather"
+)
 
 func TestCache(t *testing.T) {
 	cache := weather.NewCache()
