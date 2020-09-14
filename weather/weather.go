@@ -16,6 +16,19 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+// Report represents a weather report which may include readings from
+// multiple services.
+type Report struct {
+	// Temperature in celsius
+	Temperature float64
+
+	// Weather conditions e.g 'Fair' or 'Partly Cloudy'
+	Condition string
+
+	// The Air Quality Index (0-500)
+	AQI int
+}
+
 // Observation represents a weather observation.
 // These instances must be treated as immutable.
 type Observation struct {
@@ -124,6 +137,50 @@ func (p *PurpleAirConn) GetAQI(stationId int64) (aqi int, err error) {
 		return
 	}
 	return computeAQI(pm2_5), nil
+}
+
+// ReportCache stores a single weather report and notifies clients when
+// this report changes. ReportCache instances can be safely used with
+// multiple goroutines.
+type ReportCache struct {
+	lock   sync.Mutex
+	report Report
+	stale  chan struct{}
+}
+
+// NewReportCache creates a new report cache containing a zero value report.
+func NewReportCache() *ReportCache {
+	return &ReportCache{stale: make(chan struct{})}
+}
+
+// Set updates the report in this report cache and notifies all waiting clients.
+func (r *ReportCache) Set(report *Report) {
+	close(r.set(report, make(chan struct{})))
+}
+
+// Get returns a shallow copy of the current report. Clients can use the
+// returned channel to block until a new report is available.
+func (r *ReportCache) Get() (*Report, <-chan struct{}) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	result := r.report
+	return &result, r.stale
+}
+
+// Close frees resources associated with this report cache.
+func (r *ReportCache) Close() error {
+	close(r.set(&Report{}, nil))
+	return nil
+}
+
+func (r *ReportCache) set(
+	report *Report, stale chan struct{}) chan struct{} {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.report = *report
+	result := r.stale
+	r.stale = stale
+	return result
 }
 
 // Cache stores a single weather observation and notifies clients when
